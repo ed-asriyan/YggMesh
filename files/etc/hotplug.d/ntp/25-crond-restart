@@ -5,5 +5,5 @@
 
 [ "$ACTION" = "stratum" ] || exit 0
 
-logger -t parahub-ntp "NTP synced (stratum $STRATUM), restarting crond"
+logger -t yggmesh-ntp "NTP synced (stratum $STRATUM), restarting crond"
 /etc/init.d/cron restart

@@ -1,0 +1,518 @@
+#!/bin/sh
+# YggMesh Node — Zero-Touch First Boot Configuration
+# This script runs once on first boot via uci-defaults mechanism.
+# It configures: batman-adv mesh, dual-band WiFi (private AP), firewall zones, Yggdrasil overlay.
+
+# ============================================================================
+# 1. IDENTITY GENERATION
+# ============================================================================
+
+PRIVATE_SSID="YggMesh"
+MESH_ID="yggmesh/mesh"
+
+if [ -f /etc/yggmesh/keys ] && grep -q "^NODE_MAC=" /etc/yggmesh/keys; then
+    # OTA update — /etc/yggmesh/keys preserved by sysupgrade.conf
+    # Load existing identity to keep hostname/MAC stable across firmware updates
+    . /etc/yggmesh/keys
+    BASE_MAC="$NODE_MAC"
+    NODE_SUFFIX=$(echo "$BASE_MAC" | awk -F: '{print toupper($5$6)}')
+    HOSTNAME="YggMesh-${NODE_SUFFIX}"
+    # keys stores PRIVATE_SUBNET=10.X.Y.0/24 — extract network addr and gateway
+    PRIV_SUBNET="${PRIVATE_SUBNET%/24}"
+    PRIV_IP="${PRIV_SUBNET%0}1"
+    logger -t yggmesh "OTA: preserving identity ${HOSTNAME} (MAC ${BASE_MAC})"
+else
+    # Fresh flash — detect MAC from hardware
+    # Get hardware MAC with retry (some devices initialize NICs slowly at first boot)
+    BASE_MAC=""
+    for attempt in 1 2 3 4 5; do
+        for iface in br-lan eth0 eth1 eth2; do
+            mac=$(cat /sys/class/net/$iface/address 2>/dev/null)
+            if [ -n "$mac" ] && [ "$mac" != "00:00:00:00:00:00" ]; then
+                BASE_MAC="$mac"
+                break 2
+            fi
+        done
+        [ "$attempt" -lt 5 ] && sleep 1
+    done
+    # Fallback: random locally-administered MAC (02:xx:xx:xx:xx:xx)
+    if [ -z "$BASE_MAC" ] || [ "$BASE_MAC" = "00:00:00:00:00:00" ]; then
+        BASE_MAC=$(hexdump -n 5 -e '/1 ":%02x"' /dev/urandom | sed 's/^:/02:/')
+    fi
+
+    # Last 4 hex digits of MAC for unique suffix
+    NODE_SUFFIX=$(echo "$BASE_MAC" | awk -F: '{print toupper($5$6)}')
+    HOSTNAME="YggMesh-${NODE_SUFFIX}"
+
+    # ============================================================================
+    # 2. SUBNET GENERATION (collision avoidance from MAC octets)
+    # ============================================================================
+
+    # Private: octets 4,5 → 10.P1.P2.0/24
+    PRIV_O1=$(echo "$BASE_MAC" | awk -F: '{printf "%d", "0x"$4}')
+    PRIV_O2=$(echo "$BASE_MAC" | awk -F: '{printf "%d", "0x"$5}')
+
+    # Avoid 0 and 255 in second octet (reserved)
+    [ "$PRIV_O1" -eq 0 ] && PRIV_O1=1
+    [ "$PRIV_O1" -eq 255 ] && PRIV_O1=254
+
+    PRIV_SUBNET="10.${PRIV_O1}.${PRIV_O2}.0"
+    PRIV_IP="10.${PRIV_O1}.${PRIV_O2}.1"
+fi
+
+# ============================================================================
+# 3. KEY GENERATION
+# ============================================================================
+
+# Shared mesh SAE key — same across all YggMesh nodes for auto-peering
+MESH_KEY="ndIPclyqSn9LaCki"
+# Default root password — user must change this after first boot
+ROOT_PASSWORD="yggmesh"
+
+mkdir -p /etc/yggmesh
+cat > /etc/yggmesh/keys <<KEYS_EOF
+# YggMesh Node Keys — Generated at first boot
+# Node: ${HOSTNAME}
+# Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+MESH_SAE_KEY=${MESH_KEY}
+PRIVATE_SSID=${PRIVATE_SSID}
+PRIVATE_SUBNET=${PRIV_SUBNET}/24
+NODE_MAC=${BASE_MAC}
+KEYS_EOF
+chmod 600 /etc/yggmesh/keys
+
+# Set default root password (user should change via LuCI or passwd)
+echo -e "${ROOT_PASSWORD}\n${ROOT_PASSWORD}" | passwd root >/dev/null 2>&1
+
+# Ensure dropbear directory has strict permissions (required for key auth)
+chmod 700 /etc/dropbear
+
+# ============================================================================
+# 4. NETWORK CONFIGURATION
+# ============================================================================
+
+# --- Port mapping (written by build.sh per device) ---
+PORT_MAP=$(cat /etc/yggmesh/port_map 2>/dev/null || echo "eth0:lan eth1:wan")
+if [ "$PORT_MAP" = "dsa" ]; then
+    # DSA switch (ax53u) — individual ports
+    LAN_PORTS="lan1 lan2 lan3 lan4"
+    WAN_DEV="wan"
+else
+    # Parse port map: "eth0:wan eth1:lan" → extract LAN and WAN
+    LAN_PORTS=""
+    WAN_DEV=""
+    for mapping in $PORT_MAP; do
+        port="${mapping%%:*}"
+        role="${mapping##*:}"
+        if [ "$role" = "lan" ]; then
+            LAN_PORTS="$port"
+        elif [ "$role" = "wan" ]; then
+            WAN_DEV="$port"
+        fi
+    done
+    [ -z "$LAN_PORTS" ] && LAN_PORTS="eth0"
+    [ -z "$WAN_DEV" ] && WAN_DEV="eth1"
+fi
+
+# Delete default OpenWrt br-lan/lan (conflicts with our br-private)
+uci -q delete network.lan 2>/dev/null || true
+# Find and delete br-lan device
+for i in 0 1 2 3 4; do
+    name=$(uci -q get "network.@device[$i].name" 2>/dev/null)
+    if [ "$name" = "br-lan" ]; then
+        uci delete "network.@device[$i]"
+        break
+    fi
+done
+
+uci batch <<-NET_EOF
+# --- loopback ---
+set network.loopback=interface
+set network.loopback.device='lo'
+set network.loopback.proto='static'
+set network.loopback.ipaddr='127.0.0.1'
+set network.loopback.netmask='255.0.0.0'
+
+# --- bat0 (batman-adv) ---
+set network.bat0=interface
+set network.bat0.proto='batadv'
+set network.bat0.routing_algo='BATMAN_V'
+set network.bat0.aggregated_ogms='1'
+set network.bat0.bridge_loop_avoidance='1'
+set network.bat0.distributed_arp_table='1'
+set network.bat0.gw_mode='client'
+set network.bat0.hop_penalty='15'
+set network.bat0.orig_interval='1000'
+
+# --- bat0 hardif for mesh0 (2.4GHz mesh) ---
+set network.bat0_hardif_mesh0=interface
+set network.bat0_hardif_mesh0.proto='batadv_hardif'
+set network.bat0_hardif_mesh0.master='bat0'
+
+# --- bat0 hardif for mesh1 (5GHz mesh) ---
+set network.bat0_hardif_mesh1=interface
+set network.bat0_hardif_mesh1.proto='batadv_hardif'
+set network.bat0_hardif_mesh1.master='bat0'
+
+# --- private bridge (bat0 + LAN ethernet) ---
+set network.private_dev=device
+set network.private_dev.type='bridge'
+set network.private_dev.name='br-private'
+delete network.private_dev.ports
+add_list network.private_dev.ports='bat0'
+
+set network.private=interface
+set network.private.device='br-private'
+set network.private.proto='static'
+set network.private.ipaddr='${PRIV_IP}'
+set network.private.netmask='255.255.255.0'
+
+# --- wan (DHCP, create if missing) ---
+set network.wan=interface
+set network.wan.device='${WAN_DEV}'
+set network.wan.proto='dhcp'
+NET_EOF
+
+# Add LAN ports to private bridge (DSA: lan1-4, non-DSA: eth0)
+for port in $LAN_PORTS; do
+    uci add_list network.private_dev.ports="$port"
+done
+
+uci commit network
+
+# ============================================================================
+# 5. WIRELESS CONFIGURATION
+# ============================================================================
+
+# Detect radios dynamically
+RADIOS=$(uci show wireless | grep '=wifi-device' | cut -d'=' -f1 | cut -d'.' -f2)
+
+# Determine which radio is 2.4GHz and which is 5GHz
+RADIO_2G=""
+RADIO_5G=""
+
+for radio in $RADIOS; do
+    band=$(uci -q get "wireless.${radio}.band" 2>/dev/null || echo "")
+    htmode=$(uci -q get "wireless.${radio}.htmode" 2>/dev/null || echo "")
+
+    if [ "$band" = "2g" ]; then
+        RADIO_2G="$radio"
+    elif [ "$band" = "5g" ]; then
+        RADIO_5G="$radio"
+    else
+        # Fallback: detect from htmode or channel
+        channel=$(uci -q get "wireless.${radio}.channel" 2>/dev/null || echo "0")
+        if [ "$channel" -le 14 ] 2>/dev/null; then
+            RADIO_2G="$radio"
+        else
+            RADIO_5G="$radio"
+        fi
+    fi
+done
+
+# Fallback: if only one radio detected, use it for both
+DUAL_BAND=true
+if [ -z "$RADIO_2G" ] && [ -n "$RADIO_5G" ]; then
+    RADIO_2G="$RADIO_5G"
+    DUAL_BAND=false
+fi
+if [ -z "$RADIO_5G" ] && [ -n "$RADIO_2G" ]; then
+    RADIO_5G="$RADIO_2G"
+    DUAL_BAND=false
+fi
+
+# Remove all existing wifi-iface sections
+while uci -q delete wireless.@wifi-iface[0]; do :; done
+
+# Enable radios and set fixed channels (all nodes must share same channel for mesh peering)
+for radio in $RADIOS; do
+    uci -q delete "wireless.${radio}.disabled" 2>/dev/null || true
+done
+
+# Fixed channels — all mesh nodes must be on the same channel per band
+# 2.4GHz: channel 1 (DFS-free, least congested of 1/6/11)
+# 5GHz: channel 36 (DFS-free, universal chipset support)
+if [ -n "$RADIO_2G" ]; then
+    uci set "wireless.${RADIO_2G}.channel=1"
+fi
+if [ -n "$RADIO_5G" ] && [ "$DUAL_BAND" = "true" ]; then
+    uci set "wireless.${RADIO_5G}.channel=36"
+fi
+
+# --- 2.4GHz radio: mesh backhaul + Private AP ---
+if [ -n "$RADIO_2G" ]; then
+    # Mesh interface on 2.4GHz
+    uci batch <<-WIFI_2G_MESH
+set wireless.mesh_2g=wifi-iface
+set wireless.mesh_2g.device='${RADIO_2G}'
+set wireless.mesh_2g.mode='mesh'
+set wireless.mesh_2g.mesh_id='${MESH_ID}'
+set wireless.mesh_2g.mesh_fwding='0'
+set wireless.mesh_2g.encryption='sae'
+set wireless.mesh_2g.key='${MESH_KEY}'
+set wireless.mesh_2g.network='bat0_hardif_mesh0'
+WIFI_2G_MESH
+
+    # Private AP on 2.4GHz (range: outdoor, through walls)
+    uci batch <<-WIFI_2G_PRIV
+set wireless.private_2g=wifi-iface
+set wireless.private_2g.device='${RADIO_2G}'
+set wireless.private_2g.mode='ap'
+set wireless.private_2g.ssid='${PRIVATE_SSID}'
+set wireless.private_2g.encryption='none'
+set wireless.private_2g.network='private'
+set wireless.private_2g.ieee80211r='1'
+set wireless.private_2g.ft_over_ds='0'
+set wireless.private_2g.ft_psk_generate_local='1'
+set wireless.private_2g.mobility_domain='0a01'
+set wireless.private_2g.ieee80211k='1'
+set wireless.private_2g.ieee80211v='1'
+WIFI_2G_PRIV
+fi
+
+# --- 5GHz radio: mesh backhaul + Private AP ---
+if [ -n "$RADIO_5G" ] && [ "$DUAL_BAND" = "true" ]; then
+    # Mesh interface on 5GHz
+    uci batch <<-WIFI_5G_MESH
+set wireless.mesh_5g=wifi-iface
+set wireless.mesh_5g.device='${RADIO_5G}'
+set wireless.mesh_5g.mode='mesh'
+set wireless.mesh_5g.mesh_id='${MESH_ID}'
+set wireless.mesh_5g.mesh_fwding='0'
+set wireless.mesh_5g.encryption='sae'
+set wireless.mesh_5g.key='${MESH_KEY}'
+set wireless.mesh_5g.network='bat0_hardif_mesh1'
+WIFI_5G_MESH
+
+    # Private AP on 5GHz (better throughput, 802.11r/k/v for seamless roaming)
+    uci batch <<-WIFI_5G_PRIV
+set wireless.private_5g=wifi-iface
+set wireless.private_5g.device='${RADIO_5G}'
+set wireless.private_5g.mode='ap'
+set wireless.private_5g.ssid='${PRIVATE_SSID}'
+set wireless.private_5g.encryption='none'
+set wireless.private_5g.network='private'
+set wireless.private_5g.ieee80211r='1'
+set wireless.private_5g.ft_over_ds='0'
+set wireless.private_5g.ft_psk_generate_local='1'
+set wireless.private_5g.mobility_domain='0a01'
+set wireless.private_5g.ieee80211k='1'
+set wireless.private_5g.ieee80211v='1'
+WIFI_5G_PRIV
+fi
+
+uci commit wireless
+
+# ============================================================================
+# 6. FIREWALL CONFIGURATION
+# ============================================================================
+
+# Reset firewall to clean state
+while uci -q delete firewall.@zone[0]; do :; done
+while uci -q delete firewall.@forwarding[0]; do :; done
+while uci -q delete firewall.@rule[0]; do :; done
+while uci -q delete firewall.@redirect[0]; do :; done
+
+uci batch <<-FW_EOF
+# --- Zone: lan (private network) ---
+add firewall zone
+set firewall.@zone[-1].name='lan'
+set firewall.@zone[-1].input='ACCEPT'
+set firewall.@zone[-1].output='ACCEPT'
+set firewall.@zone[-1].forward='ACCEPT'
+add_list firewall.@zone[-1].network='private'
+
+# --- Zone: wan ---
+add firewall zone
+set firewall.@zone[-1].name='wan'
+set firewall.@zone[-1].input='REJECT'
+set firewall.@zone[-1].output='ACCEPT'
+set firewall.@zone[-1].forward='REJECT'
+set firewall.@zone[-1].masq='1'
+set firewall.@zone[-1].mtu_fix='1'
+add_list firewall.@zone[-1].network='wan'
+
+# --- Forwarding: lan → wan ---
+add firewall forwarding
+set firewall.@forwarding[-1].src='lan'
+set firewall.@forwarding[-1].dest='wan'
+
+# --- Standard WAN input rules ---
+add firewall rule
+set firewall.@rule[-1].name='Allow-DHCP-Renew'
+set firewall.@rule[-1].src='wan'
+set firewall.@rule[-1].proto='udp'
+set firewall.@rule[-1].dest_port='68'
+set firewall.@rule[-1].target='ACCEPT'
+set firewall.@rule[-1].family='ipv4'
+
+add firewall rule
+set firewall.@rule[-1].name='Allow-Ping'
+set firewall.@rule[-1].src='wan'
+set firewall.@rule[-1].proto='icmp'
+set firewall.@rule[-1].icmp_type='echo-request'
+set firewall.@rule[-1].target='ACCEPT'
+FW_EOF
+
+uci commit firewall
+
+# ============================================================================
+# 7. DHCP CONFIGURATION
+# ============================================================================
+
+# Remove existing DHCP pools that may conflict
+uci -q delete dhcp.lan 2>/dev/null || true
+
+uci batch <<-DHCP_EOF
+set dhcp.private=dhcp
+set dhcp.private.interface='private'
+set dhcp.private.start='100'
+set dhcp.private.limit='150'
+set dhcp.private.leasetime='12h'
+DHCP_EOF
+
+uci commit dhcp
+
+# ============================================================================
+# 8. SYSTEM SETTINGS
+# ============================================================================
+
+uci batch <<-SYS_EOF
+set system.@system[0].hostname='${HOSTNAME}'
+set system.@system[0].timezone='UTC0'
+set system.@system[0].zonename='UTC'
+set system.@system[0].log_proto='udp'
+set system.@system[0].conloglevel='7'
+set system.@system[0].cronloglevel='9'
+SYS_EOF
+
+# NTP: use yggmesh-ng via Yggdrasil as primary server (available even without WAN)
+uci -q delete system.ntp.server
+uci add_list system.ntp.server='<YGG_ADDR_MAIN>'
+uci add_list system.ntp.server='0.openwrt.pool.ntp.org'
+uci add_list system.ntp.server='1.openwrt.pool.ntp.org'
+uci add_list system.ntp.server='2.openwrt.pool.ntp.org'
+uci set system.ntp.enabled='1'
+
+uci commit system
+
+# ============================================================================
+# 9. YGGDRASIL OVERLAY NETWORK
+# ============================================================================
+
+# Generate unique keys for this node (skip if already exists — preserves address across OTA)
+if [ ! -f /etc/yggdrasil.conf ]; then
+    yggdrasil -genconf | sed 's/IfName: .*/IfName: ygg0/' > /etc/yggdrasil.conf
+fi
+
+# Restrict multicast peer discovery to br-private (offline mesh-local discovery only)
+sed -i 's/Regex: ".*"/Regex: "br-private"/' /etc/yggdrasil.conf
+
+# UCI network interface for yggdrasil TUN
+uci batch <<-YGG_EOF
+set network.yggdrasil=interface
+set network.yggdrasil.device='ygg0'
+set network.yggdrasil.proto='none'
+YGG_EOF
+uci commit network
+
+# Yggdrasil firewall zone
+uci batch <<-YGG_FW_EOF
+add firewall zone
+set firewall.@zone[-1].name='yggdrasil'
+set firewall.@zone[-1].input='REJECT'
+set firewall.@zone[-1].output='ACCEPT'
+set firewall.@zone[-1].forward='REJECT'
+add_list firewall.@zone[-1].network='yggdrasil'
+
+# Allow SSH on Yggdrasil (remote management)
+add firewall rule
+set firewall.@rule[-1].name='Allow SSH Ygg'
+set firewall.@rule[-1].src='yggdrasil'
+set firewall.@rule[-1].proto='tcp'
+set firewall.@rule[-1].dest_port='22'
+set firewall.@rule[-1].target='ACCEPT'
+
+# Allow HTTP on Yggdrasil (LuCI)
+add firewall rule
+set firewall.@rule[-1].name='Allow HTTP Ygg'
+set firewall.@rule[-1].src='yggdrasil'
+set firewall.@rule[-1].proto='tcp'
+set firewall.@rule[-1].dest_port='80'
+set firewall.@rule[-1].target='ACCEPT'
+
+# Allow ICMPv6 on Yggdrasil
+add firewall rule
+set firewall.@rule[-1].name='Allow ICMPv6 Ygg'
+set firewall.@rule[-1].src='yggdrasil'
+set firewall.@rule[-1].proto='icmp'
+set firewall.@rule[-1].family='ipv6'
+set firewall.@rule[-1].target='ACCEPT'
+
+# Forwardings: LAN → Yggdrasil (outbound: private clients can reach Yggdrasil services)
+add firewall forwarding
+set firewall.@forwarding[-1].src='lan'
+set firewall.@forwarding[-1].dest='yggdrasil'
+
+# Yggdrasil → LAN forwarding (inbound Yggdrasil traffic to private clients)
+add firewall forwarding
+set firewall.@forwarding[-1].src='yggdrasil'
+set firewall.@forwarding[-1].dest='lan'
+YGG_FW_EOF
+
+uci commit firewall
+
+# Enable yggdrasil service
+/etc/init.d/yggdrasil enable 2>/dev/null || true
+
+# Save yggdrasil address to node keys file
+YGG_ADDR=$(yggdrasil -address -useconffile /etc/yggdrasil.conf 2>/dev/null || echo "unknown")
+echo "YGGDRASIL_ADDRESS=${YGG_ADDR}" >> /etc/yggmesh/keys
+
+# ============================================================================
+# 10. YGGDRASIL IPv6
+#     Private: 300::/64 SLAAC — devices reachable via Yggdrasil
+# ============================================================================
+
+# Extract Yggdrasil 300::/64 subnet
+YGG_SUBNET=$(yggdrasil -subnet -useconffile /etc/yggdrasil.conf 2>/dev/null)
+# YGG_SUBNET format: 300:xxxx:xxxx:xxxx::/64
+YGG_SUBNET_PREFIX="${YGG_SUBNET%%::*}"  # 300:xxxx:xxxx:xxxx
+
+if [ -n "$YGG_SUBNET_PREFIX" ]; then
+    # Assign 300::/64 to PRIVATE interface
+    # Private clients get globally-routable Yggdrasil addresses via SLAAC
+    uci set network.private.ip6addr="${YGG_SUBNET_PREFIX}::1/64"
+    uci commit network
+
+    # Configure RA/SLAAC for private (odhcpd)
+    uci batch <<-PRIV6_EOF
+set dhcp.private.ra='server'
+set dhcp.private.dhcpv6='disabled'
+set dhcp.private.ra_management='0'
+set dhcp.private.ra_default='1'
+set dhcp.private.ra_slaac='1'
+PRIV6_EOF
+    uci commit dhcp
+
+    # Save subnet to keys file for reference
+    echo "YGGDRASIL_SUBNET=${YGG_SUBNET}" >> /etc/yggmesh/keys
+
+    logger -t yggmesh "Private IPv6: ${YGG_SUBNET_PREFIX}::1/64 (SLAAC)"
+else
+    logger -t yggmesh "Warning: Could not extract Yggdrasil subnet"
+fi
+
+# ============================================================================
+# 11. FINAL
+# ============================================================================
+
+# Log completion
+logger -t yggmesh "First boot configuration complete"
+logger -t yggmesh "Hostname: ${HOSTNAME}"
+logger -t yggmesh "Private: ${PRIVATE_SSID} @ ${PRIV_IP}/24"
+logger -t yggmesh "Mesh ID: ${MESH_ID}"
+logger -t yggmesh "Yggdrasil: ${YGG_ADDR} (multicast discovery on br-private)"
+logger -t yggmesh "Private IPv6: Yggdrasil 300::/64 SLAAC"
+
+exit 0

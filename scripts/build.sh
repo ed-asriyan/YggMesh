@@ -1,5 +1,5 @@
 #!/bin/bash
-# Parahub Mesh Firmware Builder
+# YggMesh Firmware Builder
 # Uses OpenWrt Image Builder to create custom firmware with mesh packages.
 #
 # Usage: ./scripts/build.sh <device>
@@ -11,8 +11,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 OPENWRT_VERSION="${OPENWRT_VERSION:-25.12.0}"
-PARAHUB_BUILD="23"
-FIRMWARE_VERSION="${OPENWRT_VERSION}-ph${PARAHUB_BUILD}"
+YGGMESH_BUILD="23"
+FIRMWARE_VERSION="${OPENWRT_VERSION}-ym${YGGMESH_BUILD}"
 
 # ============================================================================
 # Device Database (device → target/subtarget + Image Builder profile)
@@ -24,43 +24,36 @@ device_config() {
         axt1800)
             OPENWRT_TARGET="qualcommax/ipq60xx"
             PROFILE="glinet_gl-axt1800"
-            FIRMWARE_ROLE="bumblebee"
             PORT_MAP="dsa"
             ;;
         mt3000)
             OPENWRT_TARGET="mediatek/filogic"
             PROFILE="glinet_gl-mt3000"
-            FIRMWARE_ROLE="bumblebee"
             PORT_MAP="eth0:wan eth1:lan"
             ;;
         mt6000)
             OPENWRT_TARGET="mediatek/filogic"
             PROFILE="glinet_gl-mt6000"
-            FIRMWARE_ROLE="bumblebee"
             PORT_MAP="eth0:wan eth1:lan"
             ;;
         ax53u)
             OPENWRT_TARGET="ramips/mt7621"
             PROFILE="asus_rt-ax53u"
-            FIRMWARE_ROLE="bumblebee"
             PORT_MAP="dsa"
             ;;
         ar300m16)
             OPENWRT_TARGET="ath79/generic"
             PROFILE="glinet_gl-ar300m16"
-            FIRMWARE_ROLE="bee"
             PORT_MAP="eth0:lan eth1:wan"
             ;;
         cpe710)
             OPENWRT_TARGET="ath79/generic"
             PROFILE="tplink_cpe710-v1"
-            FIRMWARE_ROLE="bee"
             PORT_MAP="eth0:lan eth1:wan"
             ;;
         ap3000outdoor)
             OPENWRT_TARGET="mediatek/filogic"
             PROFILE="cudy_ap3000outdoor-v1"
-            FIRMWARE_ROLE="bumblebee"
             PORT_MAP="eth0:wan"
             ;;
         *)
@@ -73,35 +66,12 @@ device_config() {
 # Packages
 # ============================================================================
 
-# Bee (L2 Transport): mesh relay with Yggdrasil for management
-PACKAGES_BEE=(
+PACKAGES=(
     kmod-batman-adv
     batctl-full
     wpad-mesh-mbedtls
     -wpad-basic-mbedtls
     yggdrasil
-    tc-full
-    kmod-ifb
-    kmod-sched
-    luci
-    curl
-)
-
-# Bumblebee (L3 Gateway): full stack — overlay, VPN, guest isolation, diagnostics
-PACKAGES_BUMBLEBEE=(
-    kmod-batman-adv
-    batctl-full
-    wpad-mesh-mbedtls
-    -wpad-basic-mbedtls
-    yggdrasil
-    kmod-gre6
-    kmod-wireguard
-    wireguard-tools
-    luci-proto-wireguard
-    https-dns-proxy
-    tc-full
-    kmod-ifb
-    kmod-sched
     luci
     tcpdump
     iperf3
@@ -116,18 +86,14 @@ PACKAGES_BUMBLEBEE=(
 usage() {
     echo "Usage: $0 <device>"
     echo ""
-    echo "Devices:                                                          Role"
-    echo "  axt1800   GL.iNet GL-AXT1800 (Slate AX)    qualcommax/ipq60xx  Bumblebee"
-    echo "  mt3000    GL.iNet GL-MT3000 (Beryl AX)      mediatek/filogic   Bumblebee"
-    echo "  mt6000    GL.iNet GL-MT6000 (Flint 2)       mediatek/filogic   Bumblebee"
-    echo "  ax53u     Asus RT-AX53U                    ramips/mt7621       Bumblebee"
-    echo "  ar300m16  GL.iNet GL-AR300M16-EXT (16MB)   ath79/generic       Bee"
-    echo "  cpe710    TP-Link CPE710 v1 (5GHz outdoor)  ath79/generic      Bee"
-    echo "  ap3000outdoor  Cudy AP3000 Outdoor V1        mediatek/filogic   Bumblebee"
-    echo ""
-    echo "Roles:"
-    echo "  Bumblebee  L3 Gateway — full stack (yggdrasil, VPN, guest isolation, SQM, DoH)"
-    echo "  Bee        L2 Transport — minimal mesh relay (batman-adv, luci, heartbeat)"
+    echo "Devices:"
+    echo "  axt1800        GL.iNet GL-AXT1800 (Slate AX)       qualcommax/ipq60xx"
+    echo "  mt3000         GL.iNet GL-MT3000 (Beryl AX)        mediatek/filogic"
+    echo "  mt6000         GL.iNet GL-MT6000 (Flint 2)         mediatek/filogic"
+    echo "  ax53u          Asus RT-AX53U                       ramips/mt7621"
+    echo "  ar300m16       GL.iNet GL-AR300M16-EXT (16MB)      ath79/generic"
+    echo "  cpe710         TP-Link CPE710 v1 (5GHz outdoor)    ath79/generic"
+    echo "  ap3000outdoor  Cudy AP3000 Outdoor V1              mediatek/filogic"
     echo ""
     echo "OpenWrt version: ${OPENWRT_VERSION} (override with OPENWRT_VERSION env var)"
     echo ""
@@ -166,36 +132,19 @@ build_firmware() {
     local dir
     dir="$(builder_dir)"
 
-    # Select package list by role
     local packages
-    if [ "$FIRMWARE_ROLE" = "bee" ]; then
-        packages="${PACKAGES_BEE[*]} ${PACKAGES_EXTRA:-}"
-    else
-        packages="${PACKAGES_BUMBLEBEE[*]} ${PACKAGES_EXTRA:-}"
-    fi
+    packages="${PACKAGES[*]} ${PACKAGES_EXTRA:-}"
 
-    # Create temp FILES dir with role marker + version/profile
+    # Create temp FILES dir with version/profile
     local tmpfiles
     tmpfiles=$(mktemp -d)
     cp -a "${PROJECT_DIR}/files/"* "$tmpfiles/"
-    mkdir -p "$tmpfiles/etc/parahub"
-    echo "$FIRMWARE_ROLE" > "$tmpfiles/etc/parahub/role"
-    echo "$FIRMWARE_VERSION" > "$tmpfiles/etc/parahub/version"
-    echo "$PROFILE" > "$tmpfiles/etc/parahub/profile"
-    echo "$PORT_MAP" > "$tmpfiles/etc/parahub/port_map"
-
-    # Inject secrets (never stored in git — read from env or /opt/parahub/.env)
-    local hb_key="${MESH_HEARTBEAT_KEY:-$(grep '^MESH_HEARTBEAT_KEY=' /opt/parahub/.env 2>/dev/null | cut -d= -f2)}"
-    if [ -z "$hb_key" ]; then
-        echo "Error: MESH_HEARTBEAT_KEY not found in env or /opt/parahub/.env" >&2
-        rm -rf "$tmpfiles"
-        exit 1
-    fi
-    echo "HEARTBEAT_KEY=${hb_key}" > "$tmpfiles/etc/parahub/secrets"
-    chmod 600 "$tmpfiles/etc/parahub/secrets"
+    mkdir -p "$tmpfiles/etc/yggmesh"
+    echo "$FIRMWARE_VERSION" > "$tmpfiles/etc/yggmesh/version"
+    echo "$PROFILE" > "$tmpfiles/etc/yggmesh/profile"
+    echo "$PORT_MAP" > "$tmpfiles/etc/yggmesh/port_map"
 
     echo "Building firmware for profile: ${PROFILE}"
-    echo "Role: ${FIRMWARE_ROLE}"
     echo "Packages: ${packages}"
     echo "Custom files: ${tmpfiles}"
 
@@ -295,9 +244,8 @@ if ! device_config "$INPUT"; then
     usage
 fi
 
-echo "=== Parahub Mesh Firmware Builder ==="
+echo "=== YggMesh Firmware Builder ==="
 echo "Device:  ${INPUT}"
-echo "Role:    ${FIRMWARE_ROLE}"
 echo "OpenWrt: ${OPENWRT_VERSION}"
 echo "Target:  ${OPENWRT_TARGET}"
 echo "Profile: ${PROFILE}"
