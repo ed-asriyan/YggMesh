@@ -395,9 +395,6 @@ if [ ! -f /etc/yggdrasil.conf ]; then
     yggdrasil -genconf | sed 's/IfName: .*/IfName: ygg0/' > /etc/yggdrasil.conf
 fi
 
-# Restrict multicast peer discovery to br-private (offline mesh-local discovery only)
-sed -i 's/Regex: ".*"/Regex: "br-private"/' /etc/yggdrasil.conf
-
 # UCI network interface for yggdrasil TUN
 uci batch <<-YGG_EOF
 set network.yggdrasil=interface
