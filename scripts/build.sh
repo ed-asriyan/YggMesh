@@ -67,12 +67,9 @@ device_config() {
 # ============================================================================
 
 PACKAGES=(
-    kmod-batman-adv
-    batctl-full
-    wpad-mesh-mbedtls
-    -wpad-basic-mbedtls
     yggdrasil
     luci
+    luci-proto-yggdrasil
     tcpdump
     iperf3
     iwinfo

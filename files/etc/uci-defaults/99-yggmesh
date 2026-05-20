@@ -1,7 +1,7 @@
 #!/bin/sh
 # YggMesh Node — Zero-Touch First Boot Configuration
 # This script runs once on first boot via uci-defaults mechanism.
-# It configures: batman-adv mesh, dual-band WiFi (private AP), firewall zones, Yggdrasil overlay.
+# It configures: 802.11s WiFi mesh, dual-band WiFi (private AP), firewall zones, Yggdrasil overlay.
 
 # ============================================================================
 # 1. IDENTITY GENERATION
@@ -17,6 +17,13 @@ MESH_KEY="qJ7tN2vL8pR4xKcM"
 DEFAULT_ROOT_PASSWORD="yggmesh"
 # Yggdrasil TUN interface name
 YGG_IFNAME="ygg0"
+# Fixed router IPv4 address for local WiFi
+PRIV_IP="10.0.0.1"
+PRIV_SUBNET="10.0.0.0"
+# Yggdrasil fixed peering port
+YGG_PORT="17000"
+# Yggdrasil multicast interface regex
+YGG_PEER_REGEX=".+"
 
 if [ -f /etc/yggmesh/keys ] && grep -q "^NODE_MAC=" /etc/yggmesh/keys; then
     # OTA update — /etc/yggmesh/keys preserved by sysupgrade.conf
@@ -25,9 +32,6 @@ if [ -f /etc/yggmesh/keys ] && grep -q "^NODE_MAC=" /etc/yggmesh/keys; then
     BASE_MAC="$NODE_MAC"
     NODE_SUFFIX=$(echo "$BASE_MAC" | awk -F: '{print toupper($5$6)}')
     HOSTNAME="YggMesh-${NODE_SUFFIX}"
-    # keys stores PRIVATE_SUBNET=10.X.Y.0/24 — extract network addr and gateway
-    PRIV_SUBNET="${PRIVATE_SUBNET%/24}"
-    PRIV_IP="${PRIV_SUBNET%0}1"
     logger -t yggmesh "OTA: preserving identity ${HOSTNAME} (MAC ${BASE_MAC})"
 else
     # Fresh flash — detect MAC from hardware
@@ -51,21 +55,6 @@ else
     # Last 4 hex digits of MAC for unique suffix
     NODE_SUFFIX=$(echo "$BASE_MAC" | awk -F: '{print toupper($5$6)}')
     HOSTNAME="YggMesh-${NODE_SUFFIX}"
-
-    # ============================================================================
-    # 2. SUBNET GENERATION (collision avoidance from MAC octets)
-    # ============================================================================
-
-    # Private: octets 4,5 → 10.P1.P2.0/24
-    PRIV_O1=$(echo "$BASE_MAC" | awk -F: '{printf "%d", "0x"$4}')
-    PRIV_O2=$(echo "$BASE_MAC" | awk -F: '{printf "%d", "0x"$5}')
-
-    # Avoid 0 and 255 in second octet (reserved)
-    [ "$PRIV_O1" -eq 0 ] && PRIV_O1=1
-    [ "$PRIV_O1" -eq 255 ] && PRIV_O1=254
-
-    PRIV_SUBNET="10.${PRIV_O1}.${PRIV_O2}.0"
-    PRIV_IP="10.${PRIV_O1}.${PRIV_O2}.1"
 fi
 
 # ============================================================================
@@ -128,48 +117,33 @@ for i in 0 1 2 3 4; do
 done
 
 uci batch <<-NET_EOF
-# --- loopback ---
+# --- loopback: Standard local routing interface ---
 set network.loopback=interface
 set network.loopback.device='lo'
 set network.loopback.proto='static'
 set network.loopback.ipaddr='127.0.0.1'
 set network.loopback.netmask='255.0.0.0'
 
-# --- bat0 (batman-adv) ---
-set network.bat0=interface
-set network.bat0.proto='batadv'
-set network.bat0.routing_algo='BATMAN_V'
-set network.bat0.aggregated_ogms='1'
-set network.bat0.bridge_loop_avoidance='1'
-set network.bat0.distributed_arp_table='1'
-set network.bat0.gw_mode='client'
-set network.bat0.hop_penalty='15'
-set network.bat0.orig_interval='1000'
-
-# --- bat0 hardif for mesh0 (2.4GHz mesh) ---
-set network.bat0_hardif_mesh0=interface
-set network.bat0_hardif_mesh0.proto='batadv_hardif'
-set network.bat0_hardif_mesh0.master='bat0'
-
-# --- bat0 hardif for mesh1 (5GHz mesh) ---
-set network.bat0_hardif_mesh1=interface
-set network.bat0_hardif_mesh1.proto='batadv_hardif'
-set network.bat0_hardif_mesh1.master='bat0'
-
-# --- private bridge (bat0 + LAN ethernet) ---
+# --- private_dev: Physical bridge grouping LAN ethernet ports and the Client AP Wi-Fi ---
 set network.private_dev=device
 set network.private_dev.type='bridge'
 set network.private_dev.name='br-private'
+set network.private_dev.empty='1'
+set network.private_dev.igmp_snooping='0'
 delete network.private_dev.ports
-add_list network.private_dev.ports='bat0'
 
+# --- mesh: Layer 2 interface for raw 802.11s radios. proto='unmanaged' ensures it gets an IPv6 Link-Local address ---
+set network.mesh=interface
+set network.mesh.proto='unmanaged'
+
+# --- private: Layer 3 logical interface for br-private, providing the local router IP to clients ---
 set network.private=interface
 set network.private.device='br-private'
 set network.private.proto='static'
 set network.private.ipaddr='${PRIV_IP}'
 set network.private.netmask='255.255.255.0'
 
-# --- wan (DHCP, create if missing) ---
+# --- wan: Upstream internet port (DHCP client) to connect to global Yggdrasil peers ---
 set network.wan=interface
 set network.wan.device='${WAN_DEV}'
 set network.wan.proto='dhcp'
@@ -250,9 +224,8 @@ set wireless.mesh_2g.device='${RADIO_2G}'
 set wireless.mesh_2g.mode='mesh'
 set wireless.mesh_2g.mesh_id='${MESH_ID}'
 set wireless.mesh_2g.mesh_fwding='0'
-set wireless.mesh_2g.encryption='sae'
-set wireless.mesh_2g.key='${MESH_KEY}'
-set wireless.mesh_2g.network='bat0_hardif_mesh0'
+set wireless.mesh_2g.encryption='none'
+set wireless.mesh_2g.network='mesh'
 WIFI_2G_MESH
 
     # Private AP on 2.4GHz — single-band devices only
@@ -265,12 +238,6 @@ set wireless.private_2g.mode='ap'
 set wireless.private_2g.ssid='${PRIVATE_SSID}'
 set wireless.private_2g.encryption='none'
 set wireless.private_2g.network='private'
-set wireless.private_2g.ieee80211r='1'
-set wireless.private_2g.ft_over_ds='0'
-set wireless.private_2g.ft_psk_generate_local='1'
-set wireless.private_2g.mobility_domain='0a01'
-set wireless.private_2g.ieee80211k='1'
-set wireless.private_2g.ieee80211v='1'
 WIFI_2G_PRIV
     fi
 fi
@@ -284,12 +251,6 @@ set wireless.private_5g.mode='ap'
 set wireless.private_5g.ssid='${PRIVATE_SSID}'
 set wireless.private_5g.encryption='none'
 set wireless.private_5g.network='private'
-set wireless.private_5g.ieee80211r='1'
-set wireless.private_5g.ft_over_ds='0'
-set wireless.private_5g.ft_psk_generate_local='1'
-set wireless.private_5g.mobility_domain='0a01'
-set wireless.private_5g.ieee80211k='1'
-set wireless.private_5g.ieee80211v='1'
 WIFI_5G_PRIV
 fi
 
@@ -313,6 +274,47 @@ set firewall.@zone[-1].input='ACCEPT'
 set firewall.@zone[-1].output='ACCEPT'
 set firewall.@zone[-1].forward='ACCEPT'
 add_list firewall.@zone[-1].network='private'
+
+# --- Zone: mesh (raw 802.11s links for Yggdrasil) ---
+add firewall zone
+set firewall.@zone[-1].name='mesh'
+set firewall.@zone[-1].input='REJECT'
+set firewall.@zone[-1].output='ACCEPT'
+set firewall.@zone[-1].forward='REJECT'
+add_list firewall.@zone[-1].network='mesh'
+
+# Allow incoming Yggdrasil IPv6 traffic on mesh
+add firewall rule
+set firewall.@rule[-1].name='Allow-Yggdrasil-Mesh'
+set firewall.@rule[-1].src='mesh'
+set firewall.@rule[-1].proto='tcp udp'
+set firewall.@rule[-1].dest_port='${YGG_PORT}'
+set firewall.@rule[-1].family='ipv6'
+set firewall.@rule[-1].target='ACCEPT'
+
+# Allow IPv6 Link-Local routing (fe80::) unconditionally on mesh for Yggdrasil beacons
+add firewall rule
+set firewall.@rule[-1].name='Allow-LinkLocal-Mesh'
+set firewall.@rule[-1].src='mesh'
+set firewall.@rule[-1].src_ip='fe80::/10'
+set firewall.@rule[-1].family='ipv6'
+set firewall.@rule[-1].target='ACCEPT'
+
+# Allow IPv6 Multicast (ff02::) unconditionally on mesh for Yggdrasil discovery
+add firewall rule
+set firewall.@rule[-1].name='Allow-Multicast-Mesh'
+set firewall.@rule[-1].src='mesh'
+set firewall.@rule[-1].dest_ip='ff00::/8'
+set firewall.@rule[-1].family='ipv6'
+set firewall.@rule[-1].target='ACCEPT'
+
+# Allow ICMPv6 on mesh (needed for IPv6 Neighbor Discovery and SLAAC)
+add firewall rule
+set firewall.@rule[-1].name='Allow-ICMPv6-Mesh'
+set firewall.@rule[-1].src='mesh'
+set firewall.@rule[-1].proto='icmp'
+set firewall.@rule[-1].family='ipv6'
+set firewall.@rule[-1].target='ACCEPT'
 
 # --- Zone: wan ---
 add firewall zone
@@ -394,7 +396,7 @@ uci commit system
 # =========================================================================
 
 # Private key: generated once, stored in /etc/yggmesh/keys (preserved across OTA by sysupgrade.conf)
-# /etc/yggdrasil.conf is NOT in sysupgrade.conf — it is always re-rendered from the stored key on each flash
+# The native OpenWrt UCI is configured so the LuCI app can manage Yggdrasil peers.
 if grep -q "^YGG_PRIVKEY=" /etc/yggmesh/keys 2>/dev/null; then
     YGG_PRIVKEY=$(grep "^YGG_PRIVKEY=" /etc/yggmesh/keys | cut -d= -f2-)
 else
@@ -403,47 +405,18 @@ else
     echo "YGG_PRIVKEY=${YGG_PRIVKEY}" >> /etc/yggmesh/keys
 fi
 
-# Render complete, valid yggdrasil.conf from template
-# Format: HJSON (used by Yggdrasil on OpenWrt)
-cat > /etc/yggdrasil.conf <<YGGCONF_EOF
-{
-  # Yggdrasil configuration managed by YggMesh
-  # Re-rendered on each flash — do not edit manually
-
-  PrivateKey: "${YGG_PRIVKEY}"
-
-  Peers: []
-
-  InterfacePeers: {}
-
-  Listen: []
-
-  MulticastInterfaces:
-  [
-    {
-      Regex: ".*"
-      Beacon: true
-      Listen: true
-      Port: 0
-      Priority: 0
-    }
-  ]
-
-  AllowedPublicKeys: []
-
-  IfName: ${YGG_IFNAME}
-  IfMTU: 65535
-
-  NodeInfo: {}
-  NodeInfoPrivacy: false
-}
-YGGCONF_EOF
-
-# UCI network interface for yggdrasil TUN
+# Configure Yggdrasil interface natively via UCI
 uci batch <<-YGG_EOF
 set network.yggdrasil=interface
-set network.yggdrasil.device='${YGG_IFNAME}'
-set network.yggdrasil.proto='none'
+set network.yggdrasil.proto='yggdrasil'
+set network.yggdrasil.private_key="${YGG_PRIVKEY}"
+set network.yggdrasil.node_info_privacy='0'
+
+add network yggdrasil_yggdrasil_interface
+add_list network.@yggdrasil_yggdrasil_interface[-1].interface='${YGG_PEER_REGEX}'
+set network.@yggdrasil_yggdrasil_interface[-1].beacon='1'
+set network.@yggdrasil_yggdrasil_interface[-1].listen='1'
+set network.@yggdrasil_yggdrasil_interface[-1].port='${YGG_PORT}'
 YGG_EOF
 uci commit network
 
@@ -456,23 +429,7 @@ set firewall.@zone[-1].output='ACCEPT'
 set firewall.@zone[-1].forward='REJECT'
 add_list firewall.@zone[-1].network='yggdrasil'
 
-# Allow SSH on Yggdrasil (remote management)
-add firewall rule
-set firewall.@rule[-1].name='Allow SSH Ygg'
-set firewall.@rule[-1].src='yggdrasil'
-set firewall.@rule[-1].proto='tcp'
-set firewall.@rule[-1].dest_port='22'
-set firewall.@rule[-1].target='ACCEPT'
-
-# Allow HTTP on Yggdrasil (LuCI)
-add firewall rule
-set firewall.@rule[-1].name='Allow HTTP Ygg'
-set firewall.@rule[-1].src='yggdrasil'
-set firewall.@rule[-1].proto='tcp'
-set firewall.@rule[-1].dest_port='80'
-set firewall.@rule[-1].target='ACCEPT'
-
-# Allow ICMPv6 on Yggdrasil
+# Allow ICMPv6 on Yggdrasil (Required)
 add firewall rule
 set firewall.@rule[-1].name='Allow ICMPv6 Ygg'
 set firewall.@rule[-1].src='yggdrasil'
@@ -484,11 +441,6 @@ set firewall.@rule[-1].target='ACCEPT'
 add firewall forwarding
 set firewall.@forwarding[-1].src='lan'
 set firewall.@forwarding[-1].dest='yggdrasil'
-
-# Yggdrasil → LAN forwarding (inbound Yggdrasil traffic to private clients)
-add firewall forwarding
-set firewall.@forwarding[-1].src='yggdrasil'
-set firewall.@forwarding[-1].dest='lan'
 YGG_FW_EOF
 
 uci commit firewall
@@ -496,8 +448,12 @@ uci commit firewall
 # Enable yggdrasil service
 /etc/init.d/yggdrasil enable 2>/dev/null || true
 
+# Temporary config for address generation
+YGG_TMP=$(mktemp)
+echo "{ PrivateKey: \"${YGG_PRIVKEY}\" }" > "$YGG_TMP"
+
 # Save yggdrasil address to node keys file
-YGG_ADDR=$(yggdrasil -address -useconffile /etc/yggdrasil.conf 2>/dev/null || echo "unknown")
+YGG_ADDR=$(yggdrasil -address -useconffile "$YGG_TMP" 2>/dev/null || echo "unknown")
 echo "YGGDRASIL_ADDRESS=${YGG_ADDR}" >> /etc/yggmesh/keys
 
 # ============================================================================
@@ -506,7 +462,9 @@ echo "YGGDRASIL_ADDRESS=${YGG_ADDR}" >> /etc/yggmesh/keys
 # ============================================================================
 
 # Extract Yggdrasil 300::/64 subnet
-YGG_SUBNET=$(yggdrasil -subnet -useconffile /etc/yggdrasil.conf 2>/dev/null)
+YGG_SUBNET=$(yggdrasil -subnet -useconffile "$YGG_TMP" 2>/dev/null)
+rm -f "$YGG_TMP"
+
 # YGG_SUBNET format: 300:xxxx:xxxx:xxxx::/64
 YGG_SUBNET_PREFIX="${YGG_SUBNET%%::*}"  # 300:xxxx:xxxx:xxxx
 

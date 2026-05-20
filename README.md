@@ -5,18 +5,17 @@ Yggdrasil over WiFi Mesh
 This project builds a mesh network for cases where normal network infrastructure is unavailable or unreliable.
 
 - Routers connect to each other over [802.11s WiFi mesh](https://en.wikipedia.org/wiki/IEEE_802.11s).
-- batman-adv runs on top of that WiFi mesh and provides Layer 2 routing across all nodes.
-- Yggdrasil runs on top of batman-adv and provides end-to-end encrypted IPv6 mesh routing.
-- Every node runs a WPA3 WiFi hotspot. Phones and laptops that connect to it are placed directly into the Yggdrasil network — they receive a globally-routable `200::/7` IPv6 address via SLAAC automatically.
+- Yggdrasil runs directly on top of those 802.11s interfaces and provides end-to-end encrypted IPv6 mesh routing.
+- Every node runs an open WiFi hotspot. Phones and laptops that connect to it are placed directly into the Yggdrasil network — they receive a globally-routable `200::/7` IPv6 address via SLAAC automatically.
 - No internet connection, cloud service, or pre-configuration is required. Flash the firmware and the node is ready.
 - Clearnet access is **not** provided by this project.
 
 ![Diagram](./diagram.drawio.svg)
 
-Technically, it combines three layers:
-- **[802.11s WiFi mesh](https://en.wikipedia.org/wiki/IEEE_802.11s)** — routers form a wireless backhaul using the 802.11s protocol with SAE encryption. batman-adv (BATMAN_V) routes L2 traffic across the mesh over a virtual `bat0` interface.
-- **[Yggdrasil](https://yggdrasil-network.github.io)** — an end-to-end encrypted overlay network that runs on top of `bat0`. Every node gets a permanent `200::/7` IPv6 address derived from its public key. Nodes discover each other via multicast — no static configuration, no central registry, no internet required.
-- **WiFi hotspot** — each node creates a private WPA3 access point (`YggMesh`) with 802.11r/k/v seamless roaming. Connected clients receive a `200::/7` Yggdrasil IPv6 address via SLAAC.
+Technically, it combines two layers:
+- **[802.11s WiFi mesh](https://en.wikipedia.org/wiki/IEEE_802.11s)** — routers form a wireless backhaul using the 802.11s protocol with SAE encryption. No L2 routing daemon is involved — the 802.11s interfaces are used directly as the transport for Yggdrasil.
+- **[Yggdrasil](https://yggdrasil-network.github.io)** — an end-to-end encrypted L3 overlay network that runs directly on the 802.11s interfaces. Every node gets a permanent `200::/7` IPv6 address derived from its public key. Nodes discover each other via multicast on the mesh interfaces — no static configuration, no central registry, no internet required.
+- **WiFi hotspot** — each node creates a public, open WiFi access point (`YggMesh`) with 802.11r/k/v seamless roaming. Connected clients receive a `200::/7` Yggdrasil IPv6 address via SLAAC.
 
 ## How to Deploy
 **Requirements:** A supported OpenWrt router (see table below).
@@ -37,10 +36,9 @@ Technically, it combines three layers:
 
 **What each node does after first boot:**
 - Brings up 802.11s mesh interfaces on all available radios and joins the shared mesh with SAE encryption.
-- Runs batman-adv (BATMAN_V) over those mesh interfaces, forming a single flat L2 network across all nodes.
-- Runs Yggdrasil on top of `bat0`, discovering peers via multicast. No static peers or internet connection needed.
+- Runs Yggdrasil directly on the 802.11s interfaces, discovering peers via multicast. No static peers or internet connection needed.
 - Advertises a `300::/64` Yggdrasil subnet on `br-private` so clients receive a `200::/7` IPv6 address via SLAAC.
-- Creates a private WPA3 WiFi hotspot (`YggMesh`) with seamless roaming across all nodes.
+- Creates an open public WiFi hotspot (`YggMesh`) across all nodes.
 
 **Steps:**
 1. Download the firmware for your device from the [Releases](https://github.com/ed-asriyan/YggMesh/releases) page, or [build it yourself](#building).
@@ -81,25 +79,22 @@ Phone / Laptop  (no special apps needed)
 │        YggMesh Node         │
 │  wlan0  hostapd (YggMesh)   │
 │  ygg0   Yggdrasil           │
-│  bat0   batman-adv          │
 │  wlan1  802.11s mesh (SAE)  │
 └──────┬──────────────────────┘
-       │  batman-adv L2 over 802.11s
+       │  Yggdrasil over 802.11s
        ▼
 ┌─────────────────────────────┐
 │        YggMesh Node         │
 │  wlan0  hostapd (YggMesh)   │
 │  ygg0   Yggdrasil           │
-│  bat0   batman-adv          │
 │  wlan1  802.11s mesh (SAE)  │
 └──────┬──────────────────────┘
-       │  batman-adv L2 over 802.11s
+       │  Yggdrasil over 802.11s
        ▼
 ┌─────────────────────────────┐
 │        YggMesh Node         │
 │  wlan0  hostapd (YggMesh)   │
 │  ygg0   Yggdrasil           │
-│  bat0   batman-adv          │
 │  wlan1  802.11s mesh (SAE)  │
 └─────────────────────────────┘
 ```
@@ -122,7 +117,7 @@ To verify the mesh is working correctly, set up a 3-node linear test (A → B �
 ### 3. Connect your phone
 1. Turn off mobile data on your phone.
 2. Stand physically near **Node A**.
-3. Connect to the `YggMesh` WiFi hotspot using the default password.
+3. Connect to the `YggMesh` WiFi hotspot (it is an open network).
 
 ### 4. Test the connection
 1. Open a browser on your phone.
