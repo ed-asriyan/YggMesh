@@ -7,8 +7,16 @@
 # 1. IDENTITY GENERATION
 # ============================================================================
 
+# Client AP SSID for end-user devices
 PRIVATE_SSID="YggMesh"
+# 802.11s mesh identifier (must match on all nodes)
 MESH_ID="yggmesh/mesh"
+# SAE key for 802.11s mesh peering (must match on all nodes)
+MESH_KEY="qJ7tN2vL8pR4xKcM"
+# Initial root password set on first boot (user should change via LuCI or passwd)
+DEFAULT_ROOT_PASSWORD="yggmesh"
+# Yggdrasil TUN interface name
+YGG_IFNAME="ygg0"
 
 if [ -f /etc/yggmesh/keys ] && grep -q "^NODE_MAC=" /etc/yggmesh/keys; then
     # OTA update — /etc/yggmesh/keys preserved by sysupgrade.conf
@@ -64,10 +72,7 @@ fi
 # 3. KEY GENERATION
 # ============================================================================
 
-# Shared mesh SAE key — same across all YggMesh nodes for auto-peering
-MESH_KEY="ndIPclyqSn9LaCki"
-# Default root password — user must change this after first boot
-ROOT_PASSWORD="yggmesh"
+
 
 mkdir -p /etc/yggmesh
 cat > /etc/yggmesh/keys <<KEYS_EOF
@@ -82,10 +87,7 @@ KEYS_EOF
 chmod 600 /etc/yggmesh/keys
 
 # Set default root password (user should change via LuCI or passwd)
-echo -e "${ROOT_PASSWORD}\n${ROOT_PASSWORD}" | passwd root >/dev/null 2>&1
-
-# Ensure dropbear directory has strict permissions (required for key auth)
-chmod 700 /etc/dropbear
+echo -e "${DEFAULT_ROOT_PASSWORD}\n${DEFAULT_ROOT_PASSWORD}" | passwd root >/dev/null 2>&1
 
 # ============================================================================
 # 4. NETWORK CONFIGURATION
@@ -386,19 +388,61 @@ uci set system.ntp.enabled='1'
 
 uci commit system
 
-# ============================================================================
-# 9. YGGDRASIL OVERLAY NETWORK
-# ============================================================================
 
-# Generate unique keys for this node (skip if already exists — preserves address across OTA)
-if [ ! -f /etc/yggdrasil.conf ]; then
-    yggdrasil -genconf | sed 's/IfName: .*/IfName: ygg0/' > /etc/yggdrasil.conf
+# =========================================================================
+# 9. YGGDRASIL OVERLAY NETWORK
+# =========================================================================
+
+# Private key: generated once, stored in /etc/yggmesh/keys (preserved across OTA by sysupgrade.conf)
+# /etc/yggdrasil.conf is NOT in sysupgrade.conf — it is always re-rendered from the stored key on each flash
+if grep -q "^YGG_PRIVKEY=" /etc/yggmesh/keys 2>/dev/null; then
+    YGG_PRIVKEY=$(grep "^YGG_PRIVKEY=" /etc/yggmesh/keys | cut -d= -f2-)
+else
+    # Fresh install: generate a new key pair and persist the private key
+    YGG_PRIVKEY=$(yggdrasil -genconf 2>/dev/null | grep 'PrivateKey' | awk -F': ' '{print $2}')
+    echo "YGG_PRIVKEY=${YGG_PRIVKEY}" >> /etc/yggmesh/keys
 fi
+
+# Render complete, valid yggdrasil.conf from template
+# Format: HJSON (used by Yggdrasil on OpenWrt)
+cat > /etc/yggdrasil.conf <<YGGCONF_EOF
+{
+  # Yggdrasil configuration managed by YggMesh
+  # Re-rendered on each flash — do not edit manually
+
+  PrivateKey: "${YGG_PRIVKEY}"
+
+  Peers: []
+
+  InterfacePeers: {}
+
+  Listen: []
+
+  MulticastInterfaces:
+  [
+    {
+      Regex: ".*"
+      Beacon: true
+      Listen: true
+      Port: 0
+      Priority: 0
+    }
+  ]
+
+  AllowedPublicKeys: []
+
+  IfName: ${YGG_IFNAME}
+  IfMTU: 65535
+
+  NodeInfo: {}
+  NodeInfoPrivacy: false
+}
+YGGCONF_EOF
 
 # UCI network interface for yggdrasil TUN
 uci batch <<-YGG_EOF
 set network.yggdrasil=interface
-set network.yggdrasil.device='ygg0'
+set network.yggdrasil.device='${YGG_IFNAME}'
 set network.yggdrasil.proto='none'
 YGG_EOF
 uci commit network

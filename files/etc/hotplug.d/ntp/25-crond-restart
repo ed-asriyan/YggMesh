@@ -1,9 +1,0 @@
-#!/bin/sh
-# Restart crond after NTP time sync to clear "time disparity" freeze.
-# BusyBox crond stops executing jobs when it detects a large time jump
-# (common on devices without RTC that boot with epoch time).
-
-[ "$ACTION" = "stratum" ] || exit 0
-
-logger -t yggmesh-ntp "NTP synced (stratum $STRATUM), restarting crond"
-/etc/init.d/cron restart

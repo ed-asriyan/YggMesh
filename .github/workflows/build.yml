@@ -1,0 +1,51 @@
+name: Build Firmware
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.device }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        device:
+          - axt1800
+          - mt3000
+          - mt6000
+          - ax53u
+          - ar300m16
+          - cpe710
+          - ap3000outdoor
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd wget python3
+
+      - name: Build firmware
+        run: |
+          chmod +x scripts/build.sh
+          ./scripts/build.sh "${{ matrix.device }}"
+
+      - name: Resolve artifact name from output filename
+        id: artifact-name
+        run: |
+          bin=$(ls output/*sysupgrade*.bin 2>/dev/null | head -1 || ls output/*.bin | head -1)
+          echo "name=$(basename "$bin" .bin)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload device binaries as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: output/*.bin
+          if-no-files-found: error
