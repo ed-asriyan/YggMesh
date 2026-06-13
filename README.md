@@ -4,6 +4,8 @@ Yggdrasil over WiFi Mesh
 > [!WARNING]
 > This project is on extremely early stage. Something may break even if it's supposed ot work. Do it on your own risk. 
 
+> **Important:** This firmware is currently designed for **fresh (virgin) installations only**. Over-The-Air (OTA) upgrades via `sysupgrade` or LuCI are not supported at this stage. Upgrading an existing installation may not work and wipe the node's cryptograpic identity, Yggdrasil keys, and custom configurations.
+
 ## The Idea
 This project builds a mesh network for cases where normal network infrastructure is unavailable or unreliable.
 
@@ -42,9 +44,9 @@ Technically, it combines these layers:
 
 **Steps:**
 1. Download the firmware for your device from the [Releases](https://github.com/ed-asriyan/YggMesh/releases) page, or [build it yourself](#building).
-2. Flash it to your router via LuCI (System → Backup/Flash Firmware) or `sysupgrade`:
+2. Flash it to your router via LuCI (System → Backup/Flash Firmware) or `sysupgrade` (make sure to **not** keep settings):
    ```
-   sysupgrade -v /tmp/openwrt-*-sysupgrade.bin
+   sysupgrade -n -v /tmp/openwrt-*-sysupgrade.bin
    ```
 3. Wait for the router to reboot. First boot takes about 30 seconds longer than usual while the node configures itself.
 4. Repeat for every router you want in the mesh. No per-node configuration is needed — all nodes are identical.
@@ -54,19 +56,49 @@ Technically, it combines these layers:
 > All nodes ship with the password `yggmesh`. Change it via LuCI → System → Administration or by running `passwd` over SSH.
 
 ### Building
-To build firmware yourself you need Linux x86_64 with `wget`, `zstd`, `make`, and `python3`.
+
+#### Option A: GitHub Actions (recommended for forks)
+Fork this repository, then go to **Actions → Build Firmware → Run workflow**. Fill in the inputs and run. The firmware artifact will be available for download when the job completes.
+
+| Input | Description |
+|-------|-------------|
+| `device` | Device keyname to build (see table above). |
+| `default_root_password` | Initial root password set on first boot. **Always change from the default and on the first boot.** |
+| `private_ssid` | Client AP SSID shown to end-user devices. |
+| `yggdrasil_dns` | Space-separated DNS resolver IPv6 addresses reachable over Yggdrasil. Leave empty to skip overlay DNS. |
+| `yggdrasil_peers` | Space-separated Yggdrasil peer URIs for reaching the global network. Leave empty to rely on local multicast discovery only. Find a list of public peers [here](https://publicpeers.neilalexander.dev). It is recommended to add just a few addresses geographically close to you. |
+
+To trigger a release build for all devices at once, push a git tag (e.g. `v1.0.0`). Firmware for all supported devices will be built and attached to a GitHub Release automatically.
+
+**If you edit the code:** `MESH_ID`, `MESH_KEY`, and `YGG_PORT` are hardcoded in the workflow and not exposed as inputs — all nodes built from the same fork share the same mesh credentials and can peer with each other. It is recommended to keep them at their default values so all forks can peer with one another.
+
+#### Option B: Local build
+Requires Linux x86_64 with `wget`, `zstd`, `make`, and `python3`.
+
+All variables below are required. The script will fail immediately if any are missing.
 
 ```bash
-./scripts/build.sh <device_keyname>
+MESH_ID="yggmesh/mesh" \
+MESH_KEY="qJ7tN2vL8pR4xKcM" \
+YGG_PORT="17000" \
+PRIVATE_SSID="YggMesh" \
+DEFAULT_ROOT_PASSWORD="yggmesh" \
+YGGDRASIL_DNS="324:71e:281a:9ed3::53" \
+YGGDRASIL_PEERS="tls://example.com:443" \
+./scripts/build.sh axt1800
 ```
 
 The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target). Output lands in `output/`.
 
-```bash
-./scripts/build.sh axt1800        # GL-AXT1800
-./scripts/build.sh cpe710         # CPE710 (5 GHz outdoor)
-./scripts/build.sh ap3000outdoor  # Cudy AP3000 Outdoor
-```
+| Variable | Description |
+|----------|-------------|
+| `MESH_ID` | 802.11s mesh network identifier. Must match across all nodes. **Recommended: `yggmesh/mesh`** — use this to peer with other YggMesh deployments/forks; change only to create a fully isolated mesh. |
+| `MESH_KEY` | SAE key for 802.11s mesh peering. Must match across all nodes. Not a cryptographic secret — baked into the firmware image. **Recommended: `qJ7tN2vL8pR4xKcM`** — use this to peer with other YggMesh deployments/forks; change only to create a fully isolated mesh. |
+| `YGG_PORT` | Yggdrasil fixed peering port. **Recommended: `17000`** — use this to peer with other YggMesh deployments/forks; change only to create a fully isolated mesh. |
+| `PRIVATE_SSID` | Client AP SSID shown to end-user devices. |
+| `DEFAULT_ROOT_PASSWORD` | Initial root password set on first boot. **Always change on first boot.** |
+| `YGGDRASIL_DNS` | Space-separated DNS resolver IPv6 addresses reachable over Yggdrasil. Can be empty to skip overlay DNS. |
+| `YGGDRASIL_PEERS` | Space-separated Yggdrasil peer URIs for reaching the global network. Can be empty to rely on local multicast discovery only. |
 
 ## Verification
 To verify the mesh is working correctly, set up a 3-node linear test (A → B → C).

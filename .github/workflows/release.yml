@@ -23,8 +23,20 @@ jobs:
 
   build:
     name: Build Firmware Artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        device:
+          - axt1800
+          - mt3000
+          - mt6000
+          - ax53u
+          - ar300m16
+          - cpe710
+          - ap3000outdoor
     uses: ./.github/workflows/build.yml
-
+    with:
+      device: ${{ matrix.device }}
   publish_assets:
     name: Publish Firmware Assets
     runs-on: ubuntu-latest

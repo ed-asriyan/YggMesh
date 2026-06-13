@@ -2,19 +2,37 @@ name: Build Firmware
 
 on:
   workflow_call:
+    inputs:
+      device:
+        description: Device keyname to build
+        required: true
+        type: string
+      yggdrasil_dns:
+        description: Space-separated DNS resolver addresses reachable over Yggdrasil
+        required: false
+        default: "324:71e:281a:9ed3::53 302:db60::53 202:1d4e:724e:de52:8273:e2b5:4988:a9ba::53"
+        type: string
+      default_root_password:
+        description: Initial root password
+        required: true
+        default: yggmesh
+        type: string
+      yggdrasil_peers:
+        description: Space-separated Yggdrasil peer URIs
+        required: false
+        type: string
+      private_ssid:
+        description: Client AP SSID for end-user devices
+        required: false
+        default: YggMesh
+        type: string
   workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    name: Build ${{ matrix.device }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        device:
+    inputs:
+      device:
+        description: Device keyname to build
+        required: true
+        type: choice
+        options:
           - axt1800
           - mt3000
           - mt6000
@@ -22,6 +40,33 @@ jobs:
           - ar300m16
           - cpe710
           - ap3000outdoor
+      yggdrasil_dns:
+        description: Space-separated DNS resolver addresses reachable over Yggdrasil
+        required: false
+        default: "324:71e:281a:9ed3::53 302:db60::53 202:1d4e:724e:de52:8273:e2b5:4988:a9ba::53"
+        type: string
+      default_root_password:
+        description: Initial root password
+        required: true
+        default: yggmesh
+        type: string
+      yggdrasil_peers:
+        description: Space-separated Yggdrasil peer URIs
+        required: false
+        type: string
+      private_ssid:
+        description: Client AP SSID for end-user devices
+        required: false
+        default: YggMesh
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ inputs.device }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -33,9 +78,17 @@ jobs:
           sudo apt-get install -y zstd wget python3
 
       - name: Build firmware
+        env:
+          YGGDRASIL_DNS: ${{ inputs.yggdrasil_dns }}
+          DEFAULT_ROOT_PASSWORD: ${{ inputs.default_root_password }}
+          YGGDRASIL_PEERS: ${{ inputs.yggdrasil_peers }}
+          PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
+          MESH_ID: "yggmesh/mesh"
+          MESH_KEY: "qJ7tN2vL8pR4xKcM"
+          YGG_PORT: "17000"
         run: |
           chmod +x scripts/build.sh
-          ./scripts/build.sh "${{ matrix.device }}"
+          ./scripts/build.sh "${{ inputs.device }}"
 
       - name: Resolve artifact name from output filename
         id: artifact-name

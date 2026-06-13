@@ -4,15 +4,40 @@
 # It configures: 802.11s WiFi mesh, dual-band WiFi (private AP), firewall zones, Yggdrasil overlay.
 
 # ============================================================================
-# 1. Constants and input parameters
+# 0. Constants and input parameters
 # ============================================================================
 
 # =================
-# 1.1. Input parameters (written by build.sh per device)
+# 0.1. Input parameters (strictly required, baked in by build.sh per build)
 # =================
 
-# Alfis DNS resolver (Yggdrasil global DNS)
-ALFIS_DNS="324:71e:281a:9ed3::53"
+# DNS resolvers reachable over Yggdrasil; space-separated list of addresses
+YGGDRASIL_DNS=$(cat /etc/yggmesh/inputs/yggdrasil_dns)
+
+# Initial root password set on first boot (user should change via LuCI or passwd)
+DEFAULT_ROOT_PASSWORD=$(cat /etc/yggmesh/inputs/root_password)
+
+# Yggdrasil peers to bake in (space-separated list of peer URIs)
+YGGDRASIL_PEERS=$(cat /etc/yggmesh/inputs/yggdrasil_peers)
+
+# Client AP SSID for end-user devices
+PRIVATE_SSID=$(cat /etc/yggmesh/inputs/private_ssid)
+
+# 802.11s mesh identifier
+MESH_ID=$(cat /etc/yggmesh/inputs/mesh_id)
+
+# SAE key for 802.11s mesh peering
+MESH_KEY=$(cat /etc/yggmesh/inputs/mesh_key)
+
+# Yggdrasil fixed peering port
+YGG_PORT=$(cat /etc/yggmesh/inputs/ygg_port)
+
+# Cleanup sensitive build inputs immediately after reading into memory
+rm -rf /etc/yggmesh/inputs
+
+# =================
+# 0.2. Constants
+# =================
 
 # Fixed router IPv4 address for local WiFi
 PRIV_IP="10.0.0.1"
@@ -21,85 +46,47 @@ PRIV_SUBNET="10.0.0.0"
 # Yggdrasil TUN interface name
 YGG_IFNAME="ygg0"
 
-# Initial root password set on first boot (user should change via LuCI or passwd)
-DEFAULT_ROOT_PASSWORD="yggmesh"
-
-# =================
-# 1.2. Constants (must be consistent across all nodes in the mesh)
-# =================
-
-# Client AP SSID for end-user devices
-PRIVATE_SSID="YggMesh"
-
-# 802.11s mesh identifier (must match on all nodes)
-MESH_ID="yggmesh/mesh"
-
-# SAE key for 802.11s mesh peering (must match on all nodes)
-MESH_KEY="qJ7tN2vL8pR4xKcM"
-
-# Yggdrasil fixed peering port
-YGG_PORT="17000"
-
-# Yggdrasil multicast interface regex
-YGG_PEER_REGEX=".+"
-
 # ============================================================================
 # 1. IDENTITY GENERATION
 # ============================================================================
 
-if [ -f /etc/yggmesh/keys ] && grep -q "^NODE_MAC=" /etc/yggmesh/keys; then
-    # OTA update — /etc/yggmesh/keys preserved by sysupgrade.conf
-    # Load existing identity to keep hostname/MAC stable across firmware updates
-    . /etc/yggmesh/keys
-    BASE_MAC="$NODE_MAC"
-    NODE_SUFFIX=$(echo "$BASE_MAC" | awk -F: '{print toupper($5$6)}')
-    HOSTNAME="YggMesh-${NODE_SUFFIX}"
-    logger -t yggmesh "OTA: preserving identity ${HOSTNAME} (MAC ${BASE_MAC})"
-else
-    # Fresh flash — detect MAC from hardware
-    # Get hardware MAC with retry (some devices initialize NICs slowly at first boot)
-    BASE_MAC=""
-    for attempt in 1 2 3 4 5; do
-        for iface in br-lan eth0 eth1 eth2; do
-            mac=$(cat /sys/class/net/$iface/address 2>/dev/null)
-            if [ -n "$mac" ] && [ "$mac" != "00:00:00:00:00:00" ]; then
-                BASE_MAC="$mac"
-                break 2
-            fi
-        done
-        [ "$attempt" -lt 5 ] && sleep 1
+# Fresh flash — detect MAC from hardware
+# Get hardware MAC with retry (some devices initialize NICs slowly at first boot)
+BASE_MAC=""
+for attempt in 1 2 3 4 5; do
+    for iface in br-lan eth0 eth1 eth2; do
+        mac=$(cat /sys/class/net/$iface/address 2>/dev/null)
+        if [ -n "$mac" ] && [ "$mac" != "00:00:00:00:00:00" ]; then
+            BASE_MAC="$mac"
+            break 2
+        fi
     done
-    # Fallback: random locally-administered MAC (02:xx:xx:xx:xx:xx)
-    if [ -z "$BASE_MAC" ] || [ "$BASE_MAC" = "00:00:00:00:00:00" ]; then
-        BASE_MAC=$(hexdump -n 5 -e '/1 ":%02x"' /dev/urandom | sed 's/^:/02:/')
-    fi
+    [ "$attempt" -lt 5 ] && sleep 1
+done
+# Fallback: random locally-administered MAC (02:xx:xx:xx:xx:xx)
+if [ -z "$BASE_MAC" ] || [ "$BASE_MAC" = "00:00:00:00:00:00" ]; then
+    BASE_MAC=$(hexdump -n 5 -e '/1 ":%02x"' /dev/urandom | sed 's/^:/02:/')
+fi
 
-    # Last 4 hex digits of MAC for unique suffix
-    NODE_SUFFIX=$(echo "$BASE_MAC" | awk -F: '{print toupper($5$6)}')
-    HOSTNAME="YggMesh-${NODE_SUFFIX}"
+# Last 4 hex digits of MAC for unique suffix
+NODE_SUFFIX=$(echo "$BASE_MAC" | awk -F: '{print toupper($5$6)}')
+HOSTNAME="YggMesh-${NODE_SUFFIX}"
+
+# ============================================================================
+# 2. ROOT PASSWORD
+# ============================================================================
+
+# Set default root password (user should change via LuCI or passwd)
+if [ -n "$DEFAULT_ROOT_PASSWORD" ]; then
+    if echo -e "${DEFAULT_ROOT_PASSWORD}\n${DEFAULT_ROOT_PASSWORD}" | passwd root >/dev/null 2>&1; then
+        logger -t yggmesh "Default root password set"
+    else
+        logger -t yggmesh "Warning: failed to set default root password"
+    fi
 fi
 
 # ============================================================================
-# 3. KEY GENERATION
-# ============================================================================
-
-mkdir -p /etc/yggmesh
-cat > /etc/yggmesh/keys <<KEYS_EOF
-# YggMesh Node Keys — Generated at first boot
-# Node: ${HOSTNAME}
-# Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-MESH_SAE_KEY=${MESH_KEY}
-PRIVATE_SSID=${PRIVATE_SSID}
-PRIVATE_SUBNET=${PRIV_SUBNET}/24
-NODE_MAC=${BASE_MAC}
-KEYS_EOF
-chmod 600 /etc/yggmesh/keys
-
-# Set default root password (user should change via LuCI or passwd)
-echo -e "${DEFAULT_ROOT_PASSWORD}\n${DEFAULT_ROOT_PASSWORD}" | passwd root >/dev/null 2>&1
-
-# ============================================================================
-# 4. NETWORK CONFIGURATION
+# 3. NETWORK CONFIGURATION
 # ============================================================================
 
 # --- Port mapping (written by build.sh per device) ---
@@ -244,7 +231,8 @@ set wireless.mesh_2g.device='${RADIO_2G}'
 set wireless.mesh_2g.mode='mesh'
 set wireless.mesh_2g.mesh_id='${MESH_ID}'
 set wireless.mesh_2g.mesh_fwding='0'
-set wireless.mesh_2g.encryption='none'
+set wireless.mesh_2g.encryption='sae'
+set wireless.mesh_2g.key='${MESH_KEY}'
 set wireless.mesh_2g.network='mesh'
 WIFI_2G_MESH
 
@@ -383,18 +371,22 @@ set dhcp.private.interface='private'
 set dhcp.private.start='100'
 set dhcp.private.limit='150'
 set dhcp.private.leasetime='12h'
-# Advertise router's own IPv4 for DNS (which forwards to Alfis)
+# Advertise router's own IPv4 for DNS
 # Note: DHCPv4 option 6 cannot be an IPv6 address
 add_list dhcp.private.dhcp_option='6,${PRIV_IP}'
 
-# Configure Dnsmasq to use Alfis, alongside reliable public DNS
+# Configure Dnsmasq to use Yggdrasil DNS, alongside reliable public DNS
 # This bypasses potentially broken/hijacked ISP DNS so public peers always resolve
 set dhcp.@dnsmasq[0].noresolv='1'
 set dhcp.@dnsmasq[0].localuse='1'
-add_list dhcp.@dnsmasq[0].server='${ALFIS_DNS}'
 add_list dhcp.@dnsmasq[0].server='1.1.1.1'
 add_list dhcp.@dnsmasq[0].server='8.8.8.8'
 DHCP_EOF
+
+# Yggdrasil DNS resolvers, prepended only when baked in at build time
+for yggdrasil_dns in $YGGDRASIL_DNS; do
+    uci add_list dhcp.@dnsmasq[0].server="$yggdrasil_dns"
+done
 
 uci commit dhcp
 
@@ -411,9 +403,8 @@ set system.@system[0].conloglevel='7'
 set system.@system[0].cronloglevel='9'
 SYS_EOF
 
-# NTP: use yggmesh-ng via Yggdrasil as primary server (available even without WAN)
+# NTP: use public pool as primary servers
 uci -q delete system.ntp.server
-uci add_list system.ntp.server='<YGG_ADDR_MAIN>'
 uci add_list system.ntp.server='0.openwrt.pool.ntp.org'
 uci add_list system.ntp.server='1.openwrt.pool.ntp.org'
 uci add_list system.ntp.server='2.openwrt.pool.ntp.org'
@@ -423,18 +414,11 @@ uci commit system
 
 
 # =========================================================================
-# 9. YGGDRASIL OVERLAY NETWORK
+# 8. YGGDRASIL OVERLAY NETWORK
 # =========================================================================
 
-# Private key: generated once, stored in /etc/yggmesh/keys (preserved across OTA by sysupgrade.conf)
-# The native OpenWrt UCI is configured so the LuCI app can manage Yggdrasil peers.
-if grep -q "^YGG_PRIVKEY=" /etc/yggmesh/keys 2>/dev/null; then
-    YGG_PRIVKEY=$(grep "^YGG_PRIVKEY=" /etc/yggmesh/keys | cut -d= -f2-)
-else
-    # Fresh install: generate a new key pair and persist the private key
-    YGG_PRIVKEY=$(yggdrasil -genconf 2>/dev/null | grep 'PrivateKey' | awk -F': ' '{print $2}')
-    echo "YGG_PRIVKEY=${YGG_PRIVKEY}" >> /etc/yggmesh/keys
-fi
+# Generate a new key pair for Yggdrasil
+YGG_PRIVKEY=$(yggdrasil -genconf 2>/dev/null | grep 'PrivateKey' | awk -F': ' '{print $2}')
 
 # Configure Yggdrasil interface natively via UCI
 uci batch <<-YGG_EOF
@@ -444,11 +428,18 @@ set network.yggdrasil.private_key="${YGG_PRIVKEY}"
 set network.yggdrasil.node_info_privacy='0'
 
 add network yggdrasil_yggdrasil_interface
-add_list network.@yggdrasil_yggdrasil_interface[-1].interface='${YGG_PEER_REGEX}'
+add_list network.@yggdrasil_yggdrasil_interface[-1].interface='.+'
 set network.@yggdrasil_yggdrasil_interface[-1].beacon='1'
 set network.@yggdrasil_yggdrasil_interface[-1].listen='1'
 set network.@yggdrasil_yggdrasil_interface[-1].port='${YGG_PORT}'
 YGG_EOF
+
+# Bake in Yggdrasil peers (space-separated list) only when provided at build time
+for ygg_peer in $YGGDRASIL_PEERS; do
+    uci add network yggdrasil_yggdrasil_peer >/dev/null
+    uci set network.@yggdrasil_yggdrasil_peer[-1].address="$ygg_peer"
+done
+
 uci commit network
 
 # Yggdrasil firewall zone
@@ -483,12 +474,11 @@ uci commit firewall
 YGG_TMP=$(mktemp)
 echo "{ PrivateKey: \"${YGG_PRIVKEY}\" }" > "$YGG_TMP"
 
-# Save yggdrasil address to node keys file
+# Get yggdrasil address
 YGG_ADDR=$(yggdrasil -address -useconffile "$YGG_TMP" 2>/dev/null || echo "unknown")
-echo "YGGDRASIL_ADDRESS=${YGG_ADDR}" >> /etc/yggmesh/keys
 
 # ============================================================================
-# 10. YGGDRASIL IPv6
+# 9. YGGDRASIL IPv6
 #     Private: 300::/64 SLAAC — devices reachable via Yggdrasil
 # ============================================================================
 
@@ -512,12 +502,12 @@ set dhcp.private.dhcpv6='disabled'
 set dhcp.private.ra_management='0'
 set dhcp.private.ra_default='1'
 set dhcp.private.ra_slaac='1'
-add_list dhcp.private.dns='${ALFIS_DNS}'
 PRIV6_EOF
+    # Advertise Yggdrasil DNS over RA only when baked in at build time
+    for yggdrasil_dns in $YGGDRASIL_DNS; do
+        uci add_list dhcp.private.dns="$yggdrasil_dns"
+    done
     uci commit dhcp
-
-    # Save subnet to keys file for reference
-    echo "YGGDRASIL_SUBNET=${YGG_SUBNET}" >> /etc/yggmesh/keys
 
     logger -t yggmesh "Private IPv6: ${YGG_SUBNET_PREFIX}::1/64 (SLAAC)"
 else
@@ -525,7 +515,7 @@ else
 fi
 
 # ============================================================================
-# 11. FINAL
+# 10. FINAL
 # ============================================================================
 
 # Log completion

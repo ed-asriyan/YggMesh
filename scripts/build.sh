@@ -4,6 +4,15 @@
 #
 # Usage: ./scripts/build.sh <device_keyname>
 # Example: ./scripts/build.sh axt1800
+#
+# Required build-time inputs (env vars).
+#   YGGDRASIL_DNS          Space-separated DNS resolver addresses reachable over Yggdrasil (can be empty)
+#   DEFAULT_ROOT_PASSWORD  Initial root password set on first boot
+#   YGGDRASIL_PEERS        Space-separated list of Yggdrasil peer URIs (can be empty)
+#   PRIVATE_SSID           Client AP SSID for end-user devices
+#   MESH_ID                802.11s mesh identifier
+#   MESH_KEY               SAE key for mesh peering
+#   YGG_PORT               Yggdrasil fixed peering port
 
 set -euo pipefail
 
@@ -94,14 +103,33 @@ usage() {
     echo ""
     echo "OpenWrt version: ${OPENWRT_VERSION} (override with OPENWRT_VERSION env var)"
     echo ""
-    echo "Environment variables:"
-    echo "  OPENWRT_VERSION  OpenWrt release (default: ${OPENWRT_VERSION})"
-    echo "  PACKAGES_EXTRA   Additional packages (space-separated)"
+    echo "Environment variables (REQUIRED, unless specified otherwise):"
+    echo "  OPENWRT_VERSION        OpenWrt release (optional, default: ${OPENWRT_VERSION})"
+    echo "  PACKAGES_EXTRA         Additional packages (optional, space-separated)"
+    echo "  YGGDRASIL_DNS          Space-separated DNS resolver addresses reachable over Yggdrasil (can be empty)"
+    echo "  DEFAULT_ROOT_PASSWORD  Initial root password"
+    echo "  YGGDRASIL_PEERS        Space-separated Yggdrasil peer URIs (can be empty)"
+    echo "  PRIVATE_SSID           Client AP SSID"
+    echo "  MESH_ID                802.11s mesh identifier"
+    echo "  MESH_KEY               SAE key for mesh peering"
+    echo "  YGG_PORT               Yggdrasil fixed peering port"
     exit 1
 }
 
 builder_dir() {
     echo "${PROJECT_DIR}/imagebuilder-${OPENWRT_VERSION}-${OPENWRT_TARGET//\//-}"
+}
+
+validate_inputs() {
+    # Fail early before downloading anything if required inputs are missing.
+    # :? fails if unset or empty; ? fails only if unset (empty string is allowed).
+    : "${DEFAULT_ROOT_PASSWORD:?DEFAULT_ROOT_PASSWORD must not be empty}"
+    : "${PRIVATE_SSID:?PRIVATE_SSID must not be empty}"
+    : "${MESH_ID:?MESH_ID must not be empty}"
+    : "${MESH_KEY:?MESH_KEY must not be empty}"
+    : "${YGG_PORT:?YGG_PORT must not be empty}"
+    : "${YGGDRASIL_DNS?YGGDRASIL_DNS must be set (can be empty)}"
+    : "${YGGDRASIL_PEERS?YGGDRASIL_PEERS must be set (can be empty)}"
 }
 
 download_builder() {
@@ -136,10 +164,19 @@ build_firmware() {
     local tmpfiles
     tmpfiles=$(mktemp -d)
     cp -a "${PROJECT_DIR}/files/"* "$tmpfiles/"
-    mkdir -p "$tmpfiles/etc/yggmesh"
+    mkdir -p "$tmpfiles/etc/yggmesh/inputs"
     echo "$FIRMWARE_VERSION" > "$tmpfiles/etc/yggmesh/version"
     echo "$PROFILE" > "$tmpfiles/etc/yggmesh/profile"
     echo "$PORT_MAP" > "$tmpfiles/etc/yggmesh/port_map"
+
+    # Bake build-time inputs into the firmware.
+    echo "$YGGDRASIL_DNS" > "$tmpfiles/etc/yggmesh/inputs/yggdrasil_dns"
+    echo "$DEFAULT_ROOT_PASSWORD" > "$tmpfiles/etc/yggmesh/inputs/root_password"
+    echo "$YGGDRASIL_PEERS" > "$tmpfiles/etc/yggmesh/inputs/yggdrasil_peers"
+    echo "$PRIVATE_SSID" > "$tmpfiles/etc/yggmesh/inputs/private_ssid"
+    echo "$MESH_ID" > "$tmpfiles/etc/yggmesh/inputs/mesh_id"
+    echo "$MESH_KEY" > "$tmpfiles/etc/yggmesh/inputs/mesh_key"
+    echo "$YGG_PORT" > "$tmpfiles/etc/yggmesh/inputs/ygg_port"
 
     echo "Building firmware for profile: ${PROFILE}"
     echo "Packages: ${packages}"
@@ -249,4 +286,5 @@ echo "Profile: ${PROFILE}"
 echo ""
 
 download_builder
+validate_inputs
 build_firmware
