@@ -2,7 +2,7 @@
 # YggMesh Firmware Builder
 # Uses OpenWrt Image Builder to create custom firmware with mesh packages.
 #
-# Usage: ./scripts/build.sh <device>
+# Usage: ./scripts/build.sh <device_keyname>
 # Example: ./scripts/build.sh axt1800
 
 set -euo pipefail

@@ -4,28 +4,48 @@
 # It configures: 802.11s WiFi mesh, dual-band WiFi (private AP), firewall zones, Yggdrasil overlay.
 
 # ============================================================================
-# 1. IDENTITY GENERATION
+# 1. Constants and input parameters
 # ============================================================================
 
-# Client AP SSID for end-user devices
-PRIVATE_SSID="YggMesh"
-# 802.11s mesh identifier (must match on all nodes)
-MESH_ID="yggmesh/mesh"
-# SAE key for 802.11s mesh peering (must match on all nodes)
-MESH_KEY="qJ7tN2vL8pR4xKcM"
-# Initial root password set on first boot (user should change via LuCI or passwd)
-DEFAULT_ROOT_PASSWORD="yggmesh"
-# Yggdrasil TUN interface name
-YGG_IFNAME="ygg0"
+# =================
+# 1.1. Input parameters (written by build.sh per device)
+# =================
+
+# Alfis DNS resolver (Yggdrasil global DNS)
+ALFIS_DNS="324:71e:281a:9ed3::53"
+
 # Fixed router IPv4 address for local WiFi
 PRIV_IP="10.0.0.1"
 PRIV_SUBNET="10.0.0.0"
+
+# Yggdrasil TUN interface name
+YGG_IFNAME="ygg0"
+
+# Initial root password set on first boot (user should change via LuCI or passwd)
+DEFAULT_ROOT_PASSWORD="yggmesh"
+
+# =================
+# 1.2. Constants (must be consistent across all nodes in the mesh)
+# =================
+
+# Client AP SSID for end-user devices
+PRIVATE_SSID="YggMesh"
+
+# 802.11s mesh identifier (must match on all nodes)
+MESH_ID="yggmesh/mesh"
+
+# SAE key for 802.11s mesh peering (must match on all nodes)
+MESH_KEY="qJ7tN2vL8pR4xKcM"
+
 # Yggdrasil fixed peering port
 YGG_PORT="17000"
+
 # Yggdrasil multicast interface regex
 YGG_PEER_REGEX=".+"
-# Alfis DNS resolver (Yggdrasil global DNS)
-ALFIS_DNS="324:71e:281a:9ed3::53"
+
+# ============================================================================
+# 1. IDENTITY GENERATION
+# ============================================================================
 
 if [ -f /etc/yggmesh/keys ] && grep -q "^NODE_MAC=" /etc/yggmesh/keys; then
     # OTA update — /etc/yggmesh/keys preserved by sysupgrade.conf
@@ -62,8 +82,6 @@ fi
 # ============================================================================
 # 3. KEY GENERATION
 # ============================================================================
-
-
 
 mkdir -p /etc/yggmesh
 cat > /etc/yggmesh/keys <<KEYS_EOF
