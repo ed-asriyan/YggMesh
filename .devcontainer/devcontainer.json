@@ -1,0 +1,32 @@
+{
+    "name": "YggMesh Dev Container",
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+    "runArgs": [
+        "--platform=linux/amd64"
+    ],
+    "containerEnv": {
+        "DEBIAN_FRONTEND": "noninteractive",
+        "TZ": "Etc/UTC"
+    },
+    "onCreateCommand": "sudo apt-get update && sudo apt-get install -y zsh wget zstd make python3 file shellcheck shfmt gawk",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "timonwong.shellcheck",
+                "foxundermoon.shell-format"
+            ],
+            "settings": {
+                "editor.formatOnSave": true,
+                "editor.defaultFormatter": "foxundermoon.shell-format",
+                "[shellscript]": {
+                    "editor.defaultFormatter": "foxundermoon.shell-format"
+                },
+                "shellformat.flag": "-i 4 -bn",
+                "shellcheck.enable": true,
+                "shellcheck.run": "onSave",
+                "terminal.integrated.defaultProfile.linux": "zsh"
+            }
+        }
+    },
+    "remoteUser": "vscode"
+}

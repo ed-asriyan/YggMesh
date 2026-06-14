@@ -73,7 +73,9 @@ To trigger a release build for all devices at once, push a git tag (e.g. `v1.0.0
 **If you edit the code:** `MESH_ID`, `MESH_KEY`, and `YGG_PORT` are hardcoded in the workflow and not exposed as inputs — all nodes built from the same fork share the same mesh credentials and can peer with each other. It is recommended to keep them at their default values so all forks can peer with one another.
 
 #### Option B: Local build
-Requires Linux x86_64 with `wget`, `zstd`, `make`, and `python3`.
+Requires either:
+- Linux with `wget`, `zstd`, `make`, and `python3`
+- This repository opened in the devcontainer (works on ARM Macs)
 
 All variables below are required. The script will fail immediately if any are missing.
 

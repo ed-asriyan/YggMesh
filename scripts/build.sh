@@ -18,6 +18,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+BUILD_ROOT="${BUILD_ROOT:-$PROJECT_DIR}"
 
 OPENWRT_VERSION="${OPENWRT_VERSION:-25.12.0}"
 YGGMESH_BUILD="23"
@@ -117,7 +118,26 @@ usage() {
 }
 
 builder_dir() {
-    echo "${PROJECT_DIR}/imagebuilder-${OPENWRT_VERSION}-${OPENWRT_TARGET//\//-}"
+    echo "${BUILD_ROOT}/imagebuilder-${OPENWRT_VERSION}-${OPENWRT_TARGET//\//-}"
+}
+
+is_case_sensitive_dir() {
+    local dir="$1"
+    local lower upper
+    lower="${dir}/.yggmesh_case_test"
+    upper="${dir}/.YGGMESH_CASE_TEST"
+
+    rm -f "$lower" "$upper"
+    : > "$lower"
+
+    # If creating lower-case path also creates upper-case alias, FS is case-insensitive.
+    if [ -e "$upper" ]; then
+        rm -f "$lower" "$upper"
+        return 1
+    fi
+
+    rm -f "$lower" "$upper"
+    return 0
 }
 
 validate_inputs() {
@@ -283,6 +303,17 @@ echo "Device:  ${INPUT}"
 echo "OpenWrt: ${OPENWRT_VERSION}"
 echo "Target:  ${OPENWRT_TARGET}"
 echo "Profile: ${PROFILE}"
+
+# OpenWrt build system requires case-sensitive filesystem.
+# On macOS bind mounts in containers this can be case-insensitive,
+# so move Image Builder workdir to Linux /tmp automatically.
+if ! is_case_sensitive_dir "$BUILD_ROOT"; then
+    BUILD_ROOT="/tmp/yggmesh-build"
+    mkdir -p "$BUILD_ROOT"
+    echo "Build root is case-insensitive; using case-sensitive workdir: ${BUILD_ROOT}"
+fi
+
+echo "Build root: ${BUILD_ROOT}"
 echo ""
 
 download_builder
