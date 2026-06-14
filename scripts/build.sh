@@ -18,7 +18,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-BUILD_ROOT="${BUILD_ROOT:-$PROJECT_DIR}"
+BUILD_ROOT="${BUILD_ROOT:-/tmp/yggmesh-build}"
 
 OPENWRT_VERSION="${OPENWRT_VERSION:-25.12.0}"
 YGGMESH_BUILD="23"
@@ -105,6 +105,7 @@ usage() {
     echo "OpenWrt version: ${OPENWRT_VERSION} (override with OPENWRT_VERSION env var)"
     echo ""
     echo "Environment variables (REQUIRED, unless specified otherwise):"
+    echo "  BUILD_ROOT            Image Builder workdir (optional, default: /tmp/yggmesh-build)"
     echo "  OPENWRT_VERSION        OpenWrt release (optional, default: ${OPENWRT_VERSION})"
     echo "  PACKAGES_EXTRA         Additional packages (optional, space-separated)"
     echo "  YGGDRASIL_DNS          Space-separated DNS resolver addresses reachable over Yggdrasil (can be empty)"
@@ -119,25 +120,6 @@ usage() {
 
 builder_dir() {
     echo "${BUILD_ROOT}/imagebuilder-${OPENWRT_VERSION}-${OPENWRT_TARGET//\//-}"
-}
-
-is_case_sensitive_dir() {
-    local dir="$1"
-    local lower upper
-    lower="${dir}/.yggmesh_case_test"
-    upper="${dir}/.YGGMESH_CASE_TEST"
-
-    rm -f "$lower" "$upper"
-    : > "$lower"
-
-    # If creating lower-case path also creates upper-case alias, FS is case-insensitive.
-    if [ -e "$upper" ]; then
-        rm -f "$lower" "$upper"
-        return 1
-    fi
-
-    rm -f "$lower" "$upper"
-    return 0
 }
 
 validate_inputs() {
@@ -303,16 +285,7 @@ echo "Device:  ${INPUT}"
 echo "OpenWrt: ${OPENWRT_VERSION}"
 echo "Target:  ${OPENWRT_TARGET}"
 echo "Profile: ${PROFILE}"
-
-# OpenWrt build system requires case-sensitive filesystem.
-# On macOS bind mounts in containers this can be case-insensitive,
-# so move Image Builder workdir to Linux /tmp automatically.
-if ! is_case_sensitive_dir "$BUILD_ROOT"; then
-    BUILD_ROOT="/tmp/yggmesh-build"
-    mkdir -p "$BUILD_ROOT"
-    echo "Build root is case-insensitive; using case-sensitive workdir: ${BUILD_ROOT}"
-fi
-
+mkdir -p "$BUILD_ROOT"
 echo "Build root: ${BUILD_ROOT}"
 echo ""
 
