@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YggMesh - Off-Grid WiFi Mesh</title>
+    <details>YggMesh - Self-Organizing Off-Grid Network</details>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -11,19 +12,8 @@
             color: #111;
             background-color: #fff;
             max-width: 750px;
-            margin: 12vh auto;
+            margin: 8vh auto;
             padding: 2rem 1rem;
-        }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            margin-bottom: 0.2em;
-        }
-        h1 { 
-            font-size: 2.5rem; 
-            margin-bottom: 0; 
-            letter-spacing: -0.02em;
         }
         header {
             display: flex;
@@ -31,14 +21,34 @@
             align-items: flex-start;
             margin-bottom: 2em;
         }
+        h1 { 
+            font-size: 2.5rem; 
+            margin-bottom: 0; 
+            letter-spacing: -0.02em;
+        }
         header a {
             font-size: 1.25rem;
             color: #0366d6;
             font-weight: 600;
             margin-top: 0.5em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
         header a:hover {
             text-decoration: underline;
+        }
+        .tagline {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #000;
+            margin-top: 1.5rem;
+            margin-bottom: 0.8rem;
+        }
+        p { 
+            font-size: 1.1rem; 
+            color: #333; 
+            margin-bottom: 1.2rem;
         }
         h2 { 
             color: #555; 
@@ -49,25 +59,6 @@
             border-bottom: 1px solid #eaeaea;
             padding-bottom: 0.5em;
         }
-        p { 
-            font-size: 1.15rem; 
-            color: #333; 
-        }
-        a { 
-            color: #0366d6; 
-            text-decoration: none; 
-            font-weight: 500; 
-        }
-        a:hover { 
-            text-decoration: underline; 
-        }
-        code {
-            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
-            background: #f6f8fa;
-            padding: 0.2em 0.4em;
-            border-radius: 3px;
-            font-size: 0.85em;
-        }
         ul { 
             margin-top: 1rem; 
             padding-left: 1.2rem; 
@@ -77,23 +68,56 @@
             font-size: 1.05rem; 
             color: #333; 
         }
+        code {
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            background: #f6f8fa;
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-size: 0.85em;
+        }
+
+        .diagram-container {
+            width: 100%;
+            margin: 2.5rem auto;
+            display: block;
+            overflow: hidden;
+            background: #fff;
+        }
+        .diagram-container img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
     </style>
 </head>
 <body>
 
     <header>
         <h1>YggMesh</h1>
-        <a href="https://github.com/ed-asriyan/YggMesh">View on GitHub &rarr;</a>
+        <a href="https://github.com/ed-asriyan/YggMesh">
+            View on GitHub 
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+        </a>
     </header>
-    <p><strong>Yggdrasil over WiFi Mesh for blackout and off-grid scenarios.</strong></p>
 
-    <p>YggMesh is an open-source, zero-configuration firmware for low-cost travel routers. It drops Layer 2 bridging entirely, running an end-to-end encrypted Layer 3 IPv6 overlay (Yggdrasil) directly over raw <code>802.11s</code> interfaces. Plug it into a USB power bank, and client devices immediately receive a globally-routable <code>200::/7</code> IPv6 address via SLAAC.</p>
+    <div class="hero">
+        <div class="tagline">Yggdrasil over WiFi Mesh for blackout and off-grid scenarios.</div>
+        <p>YggMesh is open-source firmware that automatically links low-cost travel routers into a standalone, cooperative routing infrastructure. It drops Layer 2 bridging (<code>batman-adv</code>) entirely to eliminate broadcast storms, running an end-to-end encrypted Layer 3 Yggdrasil overlay natively over raw <code>802.11s</code> radio interfaces.</p>
+        
+        <p><strong>Zero-Configuration:</strong> Plug the nodes into any USB power bank. They dynamically discover neighbors via multicast and establish the network. Client devices connecting to the local Wi-Fi hotspot automatically receive globally-routable <code>200::/7</code> IPv6 addresses via SLAAC and resolve <code>.ygg</code> domains natively without installing additional software.</p>
+
+        <p><strong>Auto-Shared Internet:</strong> While designed to operate completely offline, the network automatically handles uplinks. If a single node in the entire mesh gains internet access (via ethernet or mobile tethering), that connection is securely distributed across the entire network, bringing all participants online automatically.</p>
+    </div>
+
+    <div class="diagram-container">
+        <img src="./diagram.drawio.svg" alt="Network diagram"/>
+    </div>
 
     <h2>Scenarios</h2>
     <ul>
-        <li><strong>Cellular Blackouts & Disaster Recovery:</strong> Instantly deployable, decentralized broadband IP networks when the primary grid or cell towers go down.</li>
-        <li><strong>Overlanding & Off-Grid Camping:</strong> Link convoys and campsites to share offline maps, VoIP, and local web apps deep in the woods where LTE and Starlink fail.</li>
-        <li><strong>Edge Computing & Field Events:</strong> Coordinate staff, connect IoT sensors, and sync local databases across a physical site without an ISP.</li>
+        <li><strong>Cellular Blackouts & Grid Failures:</strong> Rapidly deployable local IP communications for emergency response or when primary telecom infrastructure goes completely dark.</li>
+        <li><strong>Overlanding & Off-Grid Camping:</strong> Link vehicles, trucks, and basecamps together to seamlessly share local maps, secure chats, and files where cellular networks don't exist.</li>
+        <li><strong>Cooperative Local Broadband:</strong> Drop nodes across a site to automatically build a resilient network, securely pooling and sharing a single internet uplink (like a satellite or mobile hotspot) across all users.</li>
     </ul>
 
 </body>
