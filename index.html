@@ -3,18 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YggMesh - Off-Grid Mesh Networking</title>
+    <title>YggMesh | Encrypted Off-Grid Mesh Network</title>
     <meta name="description" content="YggMesh turns travel routers into a self-organizing encrypted off-grid mesh network. Zero configuration, automatic internet sharing across all nodes.">
     <link rel="canonical" href="https://yggmesh.com/">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <meta name="robots" content="index,follow,max-image-preview:large">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="YggMesh">
-    <meta property="og:title" content="YggMesh - Off-Grid Mesh Networking">
+    <meta property="og:title" content="YggMesh | Encrypted Off-Grid Mesh Network">
     <meta property="og:description" content="YggMesh turns travel routers into a self-organizing encrypted off-grid mesh network. Zero configuration, automatic internet sharing across all nodes.">
     <meta property="og:url" content="https://yggmesh.com/">
     <meta property="og:image" content="https://yggmesh.com/diagram.png">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="YggMesh - Off-Grid Mesh Networking">
+    <meta name="twitter:title" content="YggMesh | Encrypted Off-Grid Mesh Network">
     <meta name="twitter:description" content="YggMesh turns travel routers into a self-organizing encrypted off-grid mesh network. Zero configuration, automatic internet sharing across all nodes.">
     <meta name="twitter:image" content="https://yggmesh.com/diagram.png">
     <style>
@@ -25,7 +26,7 @@
             background-color: #fff;
             max-width: 750px;
             margin: 8vh auto;
-            padding: 2rem 1rem;
+            padding: 0rem 1rem;
         }
         header {
             display: flex;
@@ -119,6 +120,29 @@
             height: auto;
             display: block;
         }
+
+        @media (max-width: 640px) {
+            body {
+                margin: 4vh auto;
+                padding: 0 0.9rem;
+            }
+            nav {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.45rem;
+                line-height: 1.4;
+            }
+            h1 {
+                font-size: 2rem;
+                line-height: 1.2;
+            }
+            .tagline {
+                font-size: 1.2rem;
+            }
+            p, li {
+                font-size: 1rem;
+            }
+        }
     </style>
     <script type="application/ld+json">
     {
@@ -134,9 +158,14 @@
     </script>
 </head>
 <body>
+    <nav aria-label="Page sections" style="margin-bottom:2rem;font-size:0.95rem;">
+        <a href="#scenarios">Scenarios</a> &nbsp;·&nbsp;
+        <a href="#how-it-works">How it works</a> &nbsp;·&nbsp;
+        <a href="#contact">Contact</a>
+    </nav>
 
     <header>
-        <h1>YggMesh <span class="h1-sub">Off-Grid Mesh Networking</span></h1>
+        <h1>YggMesh: Off-Grid Mesh Network</h1>
         <a href="https://github.com/ed-asriyan/YggMesh">
             View on GitHub 
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
@@ -145,7 +174,7 @@
 
     <div class="hero">
         <h2 class="tagline">A self-organizing mesh network for when the grid goes down.</h2>
-        <p><strong>YggMesh</strong> is open-source firmware that turns low-cost travel routers into a <strong>self-organizing, zero-configuration encrypted network.</strong></p>
+        <p><strong>YggMesh</strong> is open-source firmware that turns low-cost travel routers into a <strong>self-organizing, zero-configuration encrypted mesh network</strong></p>
 
         <p>Nodes discover each other automatically and start routing the moment they power on. <strong>The moment at least one node gets internet access, the whole network does too.</strong></p>
     </div>
@@ -154,7 +183,7 @@
         <img src="./diagram.drawio.svg" alt="YggMesh node topology: multiple mesh nodes automatically sharing one internet uplink across the network"/>
     </div>
 
-    <h2>Scenarios</h2>
+    <h2 id="scenarios">Scenarios</h2>
 
     <h3>City under pressure</h3>
     <p>Cellular networks go down in a crowded city — no calls, no news, no way to reach the outside world. But a few people in the crowd have YggMesh routers tucked into their backpacks, running off power banks. A few more are plugged in at nearby cafes, shops, and apartments. The routers find each other automatically and form a shared network. People nearby connect to the Wi-Fi like they normally would. Some buildings still have fiber internet — those nodes bring the whole network online. Everyone in the mesh can communicate, read news, and share what's happening — automatically, without any setup, without any central infrastructure.</p>
@@ -165,14 +194,22 @@
     <h3>Off-grid camping</h3>
     <p>A group is camping deep in the forest, far from any signal. Someone plugs two small routers into power banks. Within seconds, an invisible local network forms across the camp — no accounts, no passwords, no setup. Everyone connects to Wi-Fi and can share photos, send messages, and see the camp map. Later, a car arrives with a portable satellite dish connected to just one of the routers. Without touching any settings, every phone in the camp buzzes with notifications — one internet connection, shared instantly with everyone.</p>
 
-    <h2>How it works</h2>
+    <h2 id="how-it-works">How it works</h2>
     <p>Buy a YggMesh router — or flash the firmware onto any supported travel router yourself.</p>
     <p>Once powered on, each node scans for nearby peers over a mesh radio channel and forms direct, encrypted connections with any it finds. A <a href="https://yggdrasil-network.github.io" target="_blank" rel="noopener">Yggdrasil</a> overlay routes traffic across all connected nodes, giving every device a stable address reachable by anyone else on the mesh — regardless of which node they are connected to.</p>
     <p>Internet sharing is equally automatic. If a node detects a live uplink — via ethernet, USB tethering, or a mobile hotspot — it shares that route with the entire mesh. All other nodes pick it up immediately.</p>
     <p>No configuration files. No pairing steps. No central server.</p>
 
-    <h2>Contact</h2>
-    <p>Questions or ideas? Reach out at <a href="mailto:yggmesh@asriyan.me">yggmesh@asriyan.me</a> or visit <a href="https://asriyan.me" target="_blank" rel="noopener">asriyan.me</a>.</p>
+    <h2 id="contact">Contact</h2>
+
+    <p><strong>Want to help build resilient off-grid communication?</strong> You can join at any level:</p>
+    <ul>
+        <li>Run YggMesh on your own router and share field feedback from real-world conditions.</li>
+        <li>Sponsor by purchasing a physical YggMesh router.</li>
+        <li>Contribute code, documentation, test cases, or hardware compatibility notes.</li>
+        <li>Help expand pilot networks, improve reliability, and back future releases.</li>
+    </ul>
+    <p><strong>Reach out at <a href="mailto:yggmesh@asriyan.me">yggmesh@asriyan.me</a> or visit <a href="https://asriyan.me" target="_blank" rel="noopener">asriyan.me</a> for other contact options.</strong></p>
 
 </body>
 </html>
