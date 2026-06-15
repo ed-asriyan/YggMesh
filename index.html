@@ -4,19 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YggMesh - Off-Grid Mesh Networking</title>
-    <meta name="description" content="YggMesh is off-grid WiFi mesh firmware for Yggdrasil-based networking, designed for blackout recovery, remote deployments, and shared internet uplinks.">
+    <meta name="description" content="YggMesh is open-source firmware that turns low-cost travel routers into a self-organizing encrypted mesh network. Zero configuration, works off-grid, and shares internet access automatically across all nodes.">
     <link rel="canonical" href="https://yggmesh.com/">
     <meta name="robots" content="index,follow,max-image-preview:large">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="YggMesh">
     <meta property="og:title" content="YggMesh - Off-Grid Mesh Networking">
-    <meta property="og:description" content="YggMesh is off-grid WiFi mesh firmware for Yggdrasil-based networking, designed for blackout recovery, remote deployments, and shared internet uplinks.">
+    <meta property="og:description" content="YggMesh is open-source firmware that turns low-cost travel routers into a self-organizing encrypted mesh network. Zero configuration, works off-grid, and shares internet access automatically across all nodes.">
     <meta property="og:url" content="https://yggmesh.com/">
-    <meta property="og:image" content="https://yggmesh.com/diagram.drawio.svg">
+    <meta property="og:image" content="https://yggmesh.com/diagram.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="YggMesh - Off-Grid Mesh Networking">
-    <meta name="twitter:description" content="YggMesh is off-grid WiFi mesh firmware for Yggdrasil-based networking, designed for blackout recovery, remote deployments, and shared internet uplinks.">
-    <meta name="twitter:image" content="https://yggmesh.com/diagram.drawio.svg">
+    <meta name="twitter:description" content="YggMesh is open-source firmware that turns low-cost travel routers into a self-organizing encrypted mesh network. Zero configuration, works off-grid, and shares internet access automatically across all nodes.">
+    <meta name="twitter:image" content="https://yggmesh.com/diagram.png">
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -56,6 +56,10 @@
             color: #000;
             margin-top: 1.5rem;
             margin-bottom: 0.8rem;
+            text-transform: none;
+            letter-spacing: normal;
+            border-bottom: none;
+            padding-bottom: 0;
         }
         p { 
             font-size: 1.1rem; 
@@ -101,6 +105,18 @@
             display: block;
         }
     </style>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "YggMesh",
+      "description": "Open-source firmware that turns low-cost travel routers into a self-organizing, zero-configuration encrypted mesh network.",
+      "applicationCategory": "NetworkingApplication",
+      "url": "https://yggmesh.com/",
+      "codeRepository": "https://github.com/ed-asriyan/YggMesh",
+      "keywords": "mesh network, off-grid networking, WiFi mesh, emergency network, Yggdrasil"
+    }
+    </script>
 </head>
 <body>
 
@@ -113,14 +129,14 @@
     </header>
 
     <div class="hero">
-        <div class="tagline">A self-organizing mesh network for when the grid goes down.</div>
+        <h2 class="tagline">A self-organizing mesh network for when the grid goes down.</h2>
         <p><strong>YggMesh</strong> is open-source firmware that turns low-cost travel routers into a <strong>self-organizing, zero-configuration encrypted network.</strong></p>
 
         <p>Nodes discover each other automatically and start routing the moment they power on. <strong>The moment at least one node gets internet access, the whole network does too.</strong></p>
     </div>
 
     <div class="diagram-container">
-        <img src="./diagram.drawio.svg" alt="Network diagram"/>
+        <img src="./diagram.drawio.svg" alt="YggMesh node topology: multiple mesh nodes automatically sharing one internet uplink across the network"/>
     </div>
 
     <h2>Scenarios</h2>
