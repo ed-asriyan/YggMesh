@@ -41,10 +41,6 @@ rm -rf /etc/yggmesh/inputs
 
 # Fixed router IPv4 address for local WiFi
 PRIV_IP="10.0.0.1"
-PRIV_SUBNET="10.0.0.0"
-
-# Yggdrasil TUN interface name
-YGG_IFNAME="ygg0"
 
 # ============================================================================
 # 1. IDENTITY GENERATION
