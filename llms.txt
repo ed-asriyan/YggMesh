@@ -1,0 +1,49 @@
+# YggMesh
+> YggMesh is open-source OpenWrt firmware that turns low-cost travel routers into a self-organizing, zero-configuration, end-to-end encrypted off-grid mesh network. Nodes discover each other automatically and start routing the moment they power on. The moment at least one node gets internet access, the whole network does too.
+
+YggMesh combines three layers:
+- **802.11s WiFi mesh**: Routers form a wireless backhaul using the 802.11s protocol with SAE encryption. The 802.11s interfaces are used directly as the transport — no L2 routing daemon is involved.
+- **Yggdrasil**: An end-to-end encrypted L3 overlay network running directly on the 802.11s interfaces. Every node gets a permanent `200::/7` IPv6 address derived from its public key. Nodes discover each other via multicast — no static configuration, no central registry, no internet required.
+- **WiFi hotspot**: Each node creates a public, open WiFi access point (`YggMesh`) with 802.11r/k/v seamless roaming. Connected clients receive a `200::/7` Yggdrasil IPv6 address via SLAAC.
+
+Important notes:
+- The project is at an extremely early stage; things may break. Use at your own risk.
+- Firmware is designed for fresh (virgin) installations only. OTA upgrades via `sysupgrade` or LuCI are not supported and may wipe a node's cryptographic identity and configuration.
+- Clearnet (internet) access is NOT provided out-of-the-box after flashing. Configuration after first boot is required.
+- All nodes ship with the default root password `yggmesh`. Change it after first boot.
+- Alfis DNS forwarding lets WiFi clients resolve `.ygg` and other Yggdrasil domains out of the box.
+
+## Documentation
+- [README](https://github.com/ed-asriyan/YggMesh/blob/master/README.md): Full project overview, deployment, building, verification, and clearnet access instructions.
+- [Website](https://yggmesh.com/): Landing page with use-case scenarios and a high-level explanation of how it works. Also available within Yggdrasil at [yggmesh.ygg](http://yggmesh.ygg).
+
+## Use Cases
+- Disaster/outage resilience: when cellular networks go down in a city, YggMesh routers (running off power banks or plugged in at cafes, shops, and homes) find each other and form a shared network; any node with fiber brings the whole mesh online.
+- Cut-off communities: a town relying mostly on cellular LTE stays connected when service drops — neighbors' devices mesh together automatically, and the few homes with fiber share their uplink village-wide.
+- Off-grid groups: camps, expeditions, and events get an instant local network with no accounts, passwords, or setup; a single satellite/uplink connection on one node is shared instantly with everyone.
+
+## Deployment
+- [Releases](https://github.com/ed-asriyan/YggMesh/releases): Download prebuilt firmware for supported devices.
+
+Supported devices (`device_keyname`): GL.iNet GL-AXT1800 / Slate AX (`axt1800`), GL.iNet GL-MT3000 / Beryl AX (`mt3000`), GL.iNet GL-MT6000 / Flint 2 (`mt6000`), Asus RT-AX53U (`ax53u`), GL.iNet GL-AR300M16 (`ar300m16`), TP-Link CPE710 v1 (`cpe710`), Cudy AP3000 Outdoor V1 (`ap3000outdoor`).
+
+Deployment steps: download or build firmware, flash via LuCI (System → Backup/Flash Firmware) or `sysupgrade -n -v /tmp/openwrt-*-sysupgrade.bin` (do not keep settings), wait ~30s extra on first boot for self-configuration, then repeat for every router. No per-node configuration is needed — all nodes are identical.
+
+## Building
+- [GitHub Actions build](https://github.com/ed-asriyan/YggMesh/actions): Fork the repo, run the "Build Firmware" workflow with device inputs (`device`, `default_root_password`, `private_ssid`, `yggdrasil_dns`, `yggdrasil_peers`). Push a git tag (e.g. `v1.0.0`) to trigger a release build for all devices.
+- Local build: Requires Linux with `wget`, `zstd`, `make`, `python3` (or the repo devcontainer). Set `MESH_ID`, `MESH_KEY`, `YGG_PORT`, `PRIVATE_SSID`, `DEFAULT_ROOT_PASSWORD`, `YGGDRASIL_DNS`, `YGGDRASIL_PEERS` and run `./scripts/build.sh <device_keyname>`. The OpenWrt Image Builder (~1.5 GB per target) is downloaded on first run; output lands in `output/`.
+
+Shared mesh credentials (`MESH_ID=yggmesh/mesh`, `MESH_KEY=qJ7tN2vL8pR4xKcM`, `YGG_PORT=17000`) are recommended defaults so all YggMesh forks/deployments can peer with each other. Change them only to create a fully isolated mesh. `MESH_KEY` is not a cryptographic secret — it is baked into the firmware image.
+
+## Clearnet Access
+To reach the internet, a YggMesh node must be configured (after first boot) with global Yggdrasil peers and/or a Yggdrasil-to-clearnet proxy. Nothing is hardcoded in the firmware.
+- [Public Yggdrasil peers](https://publicpeers.neilalexander.dev): Add a few geographically close peer URIs via LuCI (yggdrasil interface → Peers) to connect the local mesh to the global Yggdrasil network.
+- [yggdrasil-clearnet-proxy](https://github.com/ed-asriyan/yggdrasil-clearnet-proxy): Set up a SOCKS5 proxy to reach the public internet from devices on the YggMesh WiFi.
+- [Yggdrasil services](https://yggdrasil-network.github.io/services.html): Public Yggdrasil websites useful for verifying connectivity.
+
+## Optional
+- [Yggdrasil Network](https://yggdrasil-network.github.io): The end-to-end encrypted IPv6 overlay routing protocol used by YggMesh.
+- [IEEE 802.11s](https://en.wikipedia.org/wiki/IEEE_802.11s): The WiFi mesh standard used for the wireless backhaul.
+- [Alfis](https://alfis.name): Decentralized DNS used for resolving `.ygg` and related domains.
+- [Contact](mailto:yggmesh@asriyan.me): Email for contributions, feedback, and hardware support. See also [asriyan.me](https://asriyan.me) or [asriyan.ygg](http://asriyan.ygg).
+- [License: MIT](https://github.com/ed-asriyan/YggMesh/blob/master/LICENSE)
