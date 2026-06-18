@@ -10,7 +10,7 @@ on:
       yggdrasil_dns:
         description: Space-separated DNS resolver addresses reachable over Yggdrasil
         required: false
-        default: "324:71e:281a:9ed3::53 302:db60::53 202:1d4e:724e:de52:8273:e2b5:4988:a9ba::53"
+        default: "324:71e:281a:9ed3::53 302:db60::53 202:1d4e:724e:de52:8273:e2b5:4988:a9ba"
         type: string
       default_root_password:
         description: Initial root password
@@ -43,7 +43,7 @@ on:
       yggdrasil_dns:
         description: Space-separated DNS resolver addresses reachable over Yggdrasil
         required: false
-        default: "324:71e:281a:9ed3::53 302:db60::53 202:1d4e:724e:de52:8273:e2b5:4988:a9ba::53"
+        default: "324:71e:281a:9ed3::53 302:db60::53 202:1d4e:724e:de52:8273:e2b5:4988:a9ba"
         type: string
       default_root_password:
         description: Initial root password

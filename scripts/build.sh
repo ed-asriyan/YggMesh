@@ -132,6 +132,29 @@ validate_inputs() {
     : "${YGG_PORT:?YGG_PORT must not be empty}"
     : "${YGGDRASIL_DNS?YGGDRASIL_DNS must be set (can be empty)}"
     : "${YGGDRASIL_PEERS?YGGDRASIL_PEERS must be set (can be empty)}"
+
+    # Validate that YGG_PORT is a valid port number
+    if ! [[ "$YGG_PORT" =~ ^[0-9]+$ ]] || [ "$YGG_PORT" -lt 1 ] || [ "$YGG_PORT" -gt 65535 ]; then
+        echo "Error: Invalid port in YGG_PORT: '$YGG_PORT'. Must be 1-65535." >&2
+        exit 1
+    fi
+
+    # Validate that MESH_KEY is at least 8 characters (SAE requirement)
+    if [ "${#MESH_KEY}" -lt 8 ]; then
+        echo "Error: MESH_KEY must be at least 8 characters long (WPA3-SAE requirement)." >&2
+        exit 1
+    fi
+
+    # Validate that YGGDRASIL_DNS contains only valid IPv6 addresses
+    if [ -n "$YGGDRASIL_DNS" ]; then
+        for ip in $YGGDRASIL_DNS; do
+            if ! python3 -c "import ipaddress, sys; ipaddress.IPv6Address(sys.argv[1])" "$ip" 2>/dev/null; then
+                echo "Error: Invalid IPv6 address in YGGDRASIL_DNS: '$ip'" >&2
+                echo "This will crash dnsmasq and break the router's IPv4 DHCP server." >&2
+                exit 1
+            fi
+        done
+    fi
 }
 
 download_builder() {
