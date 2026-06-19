@@ -204,10 +204,11 @@
     <p>A group is camping deep in the forest, far from any signal. Someone plugs two small routers into power banks. Within seconds, an invisible local network forms across the camp — no accounts, no passwords, no setup. Everyone connects to Wi-Fi and can share photos, send messages, and see the camp map. Later, a car arrives with a portable satellite dish connected to just one of the routers. Without touching any settings, every phone in the camp buzzes with notifications — one internet connection, shared instantly with everyone.</p>
 
     <h2 id="how-it-works">How it works</h2>
-    <p>Buy a YggMesh router — or flash the firmware onto any supported travel router yourself.</p>
-    <p>Once powered on, each node scans for nearby peers over a mesh radio channel and forms direct, encrypted connections with any it finds. A <a href="https://yggdrasil-network.github.io" target="_blank" rel="noopener">Yggdrasil</a> overlay routes traffic across all connected nodes, giving every device a stable address reachable by anyone else on the mesh — regardless of which node they are connected to.</p>
-    <p>Internet sharing is equally automatic. If a node detects a live uplink — via ethernet, USB tethering, or a mobile hotspot — it shares that route with the entire mesh. All other nodes pick it up immediately.</p>
-    <p>No configuration files. No pairing steps. No central server.</p>
+    <p>Flash the YggMesh firmware onto a supported travel router to turn it into a mesh node.</p>
+    <p>Once powered on, each node silently scans for nearby peers over a hidden wireless channel and forms direct, encrypted connections. We use <a href="https://yggdrasil-network.github.io" target="_blank" rel="noopener">Yggdrasil</a>'s powerful routing protocol to find the fastest path for data across all connected nodes.</p>
+    <p>To the end user, it looks like a regular open WiFi network. When you connect your phone or laptop to any YggMesh router, your device is securely merged into the entire local mesh. You can communicate or share files with anyone else connected to the mesh network, even if they are several hops (routers) away.</p>
+    <p>If a router is plugged into a live internet uplink, it can optionally be configured as a gateway to bring the local offline mesh into the global Yggdrasil network and the wider internet (clearnet).</p>
+    <p>No configuration files needed for the local mesh. No pairing steps. No central server.</p>
 
     <h2 id="contact">Contact</h2>
 
