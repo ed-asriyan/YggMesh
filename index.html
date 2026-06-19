@@ -39,46 +39,52 @@
             padding: 0rem 1rem;
         }
         header {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            margin-bottom: 2em;
+            text-align: center;
+            border-bottom: 1px solid #eaeaea;
+            padding: 1rem 0 2rem;
+            margin-bottom: 2.5rem;
         }
-        h1 { 
+        .logo { 
             font-size: 2.5rem; 
-            margin-bottom: 0; 
+            font-weight: 700; 
             letter-spacing: -0.02em;
+            color: #111;
+            margin: 0;
+            line-height: 1.2;
         }
-        h1 .h1-sub {
-            display: block;
-            font-size: 1rem;
+        .logo span { 
+            color: #0366d6; 
+        }
+        .tagline { 
+            font-size: 1.1rem;
             font-weight: 400;
             color: #555;
-            letter-spacing: normal;
-            margin-top: 0.2em;
-        }
-        header a {
-            font-size: 1.25rem;
-            color: #0366d6;
-            font-weight: 600;
-            margin-top: 0.5em;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        header a:hover {
-            text-decoration: underline;
-        }
-        .tagline {
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: #000;
-            margin-top: 1.5rem;
-            margin-bottom: 0.8rem;
+            margin-top: 0.5rem;
+            margin-bottom: 0;
             text-transform: none;
             letter-spacing: normal;
             border-bottom: none;
             padding-bottom: 0;
+        }
+        .meta-row { 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 0.6rem; 
+            margin-top: 1.5rem; 
+            flex-wrap: wrap;
+            font-size: 0.95rem;
+        }
+        .meta-row .dot {
+            color: #999;
+        }
+        .meta-row a {
+            color: #0366d6;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .meta-row a:hover {
+            text-decoration: underline;
         }
         p { 
             font-size: 1.1rem; 
@@ -136,18 +142,12 @@
                 margin: 4vh auto;
                 padding: 0 0.9rem;
             }
-            nav {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 0.45rem;
-                line-height: 1.4;
-            }
-            h1 {
+            .logo {
                 font-size: 2rem;
                 line-height: 1.2;
             }
             .tagline {
-                font-size: 1.2rem;
+                font-size: 1rem;
             }
             p, li {
                 font-size: 1rem;
@@ -168,22 +168,21 @@
     </script>
 </head>
 <body>
-    <nav aria-label="Page sections" style="margin-bottom:2rem;font-size:0.95rem;">
-        <a href="#scenarios">Scenarios</a> &nbsp;·&nbsp;
-        <a href="#how-it-works">How it works</a> &nbsp;·&nbsp;
-        <a href="#contact">Contact</a>
-    </nav>
-
     <header>
-        <h1>YggMesh: Off-Grid Mesh Network</h1>
-        <a href="https://github.com/ed-asriyan/YggMesh">
-            View on GitHub 
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
-        </a>
+        <h1 class="logo">Ygg<span>Mesh</span></h1>
+        <h2 class="tagline">A self-organizing encrypted mesh network for when the grid goes down.</h2>
+        <nav class="meta-row" aria-label="Page sections">
+            <a href="#scenarios">Scenarios</a>
+            <span class="dot">&middot;</span>
+            <a href="#how-it-works">How it works</a>
+            <span class="dot">&middot;</span>
+            <a href="https://github.com/ed-asriyan/YggMesh/releases" target="_blank">Download</a>
+            <span class="dot">&middot;</span>
+            <a href="#contact">Contact</a>
+        </nav>
     </header>
 
     <div class="hero">
-        <h2 class="tagline">A self-organizing mesh network for when the grid goes down.</h2>
         <p><strong>YggMesh</strong> is open-source firmware that turns low-cost travel routers into a <strong>self-organizing, zero-configuration encrypted mesh network</strong></p>
 
         <p>Nodes discover each other automatically and start routing the moment they power on. <strong>The moment at least one node gets internet access, the whole network does too.</strong></p>
