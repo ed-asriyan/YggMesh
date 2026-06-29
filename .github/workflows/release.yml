@@ -34,6 +34,7 @@ jobs:
           - ar300m16
           - cpe710
           - ap3000outdoor
+          - wr3000
     uses: ./.github/workflows/build.yml
     with:
       device: ${{ matrix.device }}

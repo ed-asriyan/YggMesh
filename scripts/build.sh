@@ -66,6 +66,11 @@ device_config() {
             PROFILE="cudy_ap3000outdoor-v1"
             PORT_MAP="eth0:wan"
             ;;
+        wr3000)
+            OPENWRT_TARGET="mediatek/filogic"
+            PROFILE="cudy_wr3000-v1"
+            PORT_MAP="dsa"
+            ;;
         *)
             return 1
             ;;
@@ -101,6 +106,7 @@ usage() {
     echo "  ar300m16       GL.iNet GL-AR300M16-EXT (16MB)      ath79/generic"
     echo "  cpe710         TP-Link CPE710 v1 (5GHz outdoor)    ath79/generic"
     echo "  ap3000outdoor  Cudy AP3000 Outdoor V1              mediatek/filogic"
+    echo "  wr3000         Cudy WR3000 V1                      mediatek/filogic"
     echo ""
     echo "OpenWrt version: ${OPENWRT_VERSION} (override with OPENWRT_VERSION env var)"
     echo ""

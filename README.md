@@ -35,6 +35,7 @@ Technically, it combines these layers:
 | GL.iNet GL-AR300M16 (16 MB) | `ar300m16` | [Amazon](https://a.co/d/07d6zejs), [GL.iNet](https://www.gl-inet.com/products/gl-ar300m) |
 | TP-Link CPE710 v1 | `cpe710` | [Amazon](https://a.co/d/0diuhGV5), [TP-Link](https://www.tp-link.com/us/business-networking/pharos-cpe/cpe710) |
 | Cudy AP3000 Outdoor V1 | `ap3000outdoor` | [Amazon](https://a.co/d/0gA2n0vt) |
+| Cudy WR3000 V1 | `wr3000` | [Cudy](https://www.cudy.com/products/wr3000-1-0) |
 
 **What each node does after first boot:**
 - Brings up 802.11s mesh interfaces on all available radios and joins the shared mesh with SAE encryption.
