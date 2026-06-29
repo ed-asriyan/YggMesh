@@ -34,7 +34,7 @@ device_config() {
         axt1800)
             OPENWRT_TARGET="qualcommax/ipq60xx"
             PROFILE="glinet_gl-axt1800"
-            PORT_MAP="dsa"
+            PORT_MAP="wan:wan lan1:lan lan2:lan"
             ;;
         mt3000)
             OPENWRT_TARGET="mediatek/filogic"
@@ -49,7 +49,7 @@ device_config() {
         ax53u)
             OPENWRT_TARGET="ramips/mt7621"
             PROFILE="asus_rt-ax53u"
-            PORT_MAP="dsa"
+            PORT_MAP="wan:wan lan1:lan lan2:lan lan3:lan"
             ;;
         ar300m16)
             OPENWRT_TARGET="ath79/generic"
@@ -69,7 +69,7 @@ device_config() {
         wr3000)
             OPENWRT_TARGET="mediatek/filogic"
             PROFILE="cudy_wr3000-v1"
-            PORT_MAP="dsa"
+            PORT_MAP="wan:wan lan1:lan lan2:lan lan3:lan"
             ;;
         *)
             return 1

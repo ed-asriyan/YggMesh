@@ -87,26 +87,20 @@ fi
 
 # --- Port mapping (written by build.sh per device) ---
 PORT_MAP=$(cat /etc/yggmesh/port_map 2>/dev/null || echo "eth0:lan eth1:wan")
-if [ "$PORT_MAP" = "dsa" ]; then
-    # DSA switch (ax53u) — individual ports
-    LAN_PORTS="lan1 lan2 lan3 lan4"
-    WAN_DEV="wan"
-else
-    # Parse port map: "eth0:wan eth1:lan" → extract LAN and WAN
-    LAN_PORTS=""
-    WAN_DEV=""
-    for mapping in $PORT_MAP; do
-        port="${mapping%%:*}"
-        role="${mapping##*:}"
-        if [ "$role" = "lan" ]; then
-            LAN_PORTS="$port"
-        elif [ "$role" = "wan" ]; then
-            WAN_DEV="$port"
-        fi
-    done
-    [ -z "$LAN_PORTS" ] && LAN_PORTS="eth0"
-    [ -z "$WAN_DEV" ] && WAN_DEV="eth1"
-fi
+# Parse port map (e.g. "wan:wan lan1:lan lan2:lan lan3:lan")
+LAN_PORTS=""
+WAN_DEV=""
+for mapping in $PORT_MAP; do
+    port="${mapping%%:*}"
+    role="${mapping##*:}"
+    if [ "$role" = "lan" ]; then
+        LAN_PORTS="${LAN_PORTS:+$LAN_PORTS }$port"
+    elif [ "$role" = "wan" ]; then
+        WAN_DEV="$port"
+    fi
+done
+[ -z "$LAN_PORTS" ] && LAN_PORTS="eth0"
+[ -z "$WAN_DEV" ] && WAN_DEV="eth1"
 
 # Delete default OpenWrt br-lan/lan (conflicts with our br-private)
 uci -q delete network.lan 2>/dev/null || true
