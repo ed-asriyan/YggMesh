@@ -26,15 +26,15 @@ Technically, it combines these layers:
 **Requirements:** A supported OpenWrt router (see table below).
 
 **Supported devices:**
-| Device | `device_keyname` | Notes |
+| Device | `device_keyname` | Links |
 |--------|--------|-------|
-| GL.iNet GL-AXT1800 (Slate AX) | `axt1800` | WiFi 6, 512 MB RAM |
-| GL.iNet GL-MT3000 (Beryl AX) | `mt3000` | WiFi 6, compact |
-| GL.iNet GL-MT6000 (Flint 2) | `mt6000` | WiFi 6, 1 GB RAM |
-| Asus RT-AX53U | `ax53u` | WiFi 6, DSA switch |
-| GL.iNet GL-AR300M16 (16 MB) | `ar300m16` | 2.4 GHz only |
-| TP-Link CPE710 v1 | `cpe710` | 5 GHz outdoor, 23 dBi directional |
-| Cudy AP3000 Outdoor V1 | `ap3000outdoor` | WiFi 6, outdoor |
+| GL.iNet GL-AXT1800 (Slate AX) | `axt1800` | [GL.iNet](https://www.gl-inet.com/en-us/products/gl-axt1800), [Amazon](https://a.co/d/04RvIH3O) |
+| GL.iNet GL-MT3000 (Beryl AX) | `mt3000` | [GL.iNet](https://www.gl-inet.com/en-us/products/gl-mt3000), [Amazon](https://a.co/d/0ho0XJkU) |
+| GL.iNet GL-MT6000 (Flint 2) | `mt6000` | [GL.iNet](https://www.gl-inet.com/en-us/products/gl-mt6000), [Amazon](https://a.co/d/06pVFZCU) |
+| Asus RT-AX53U | `ax53u` | [Amazon](https://a.co/d/04HaQXdK), [Asus](https://www.asus.com/networking-iot-servers/wifi-routers/asus-wifi-routers/rt-ax53u) |
+| GL.iNet GL-AR300M16 (16 MB) | `ar300m16` | [Amazon](https://a.co/d/07d6zejs), [GL.iNet](https://www.gl-inet.com/products/gl-ar300m) |
+| TP-Link CPE710 v1 | `cpe710` | [Amazon](https://a.co/d/0diuhGV5), [TP-Link](https://www.tp-link.com/us/business-networking/pharos-cpe/cpe710) |
+| Cudy AP3000 Outdoor V1 | `ap3000outdoor` | [Amazon](https://a.co/d/0gA2n0vt) |
 
 **What each node does after first boot:**
 - Brings up 802.11s mesh interfaces on all available radios and joins the shared mesh with SAE encryption.
