@@ -88,8 +88,8 @@ jobs:
           MESH_KEY: "qJ7tN2vL8pR4xKcM"
           YGG_PORT: "17000"
         run: |
-          chmod +x scripts/build.sh
-          ./scripts/build.sh "${{ inputs.device }}"
+          chmod +x scripts/build_router.sh
+          ./scripts/build_router.sh "${{ inputs.device }}"
 
       - name: Resolve artifact name from output filename
         id: artifact-name

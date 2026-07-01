@@ -2,8 +2,8 @@
 # YggMesh Firmware Builder
 # Uses OpenWrt Image Builder to create custom firmware with mesh packages.
 #
-# Usage: ./scripts/build.sh <device_keyname>
-# Example: ./scripts/build.sh axt1800
+# Usage: ./scripts/build_router.sh <device_keyname>
+# Example: ./scripts/build_router.sh axt1800
 #
 # Required build-time inputs (env vars).
 #   YGGDRASIL_DNS          Space-separated DNS resolver addresses reachable over Yggdrasil (can be empty)
@@ -17,12 +17,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-BUILD_ROOT="${BUILD_ROOT:-/tmp/yggmesh-build}"
-
-OPENWRT_VERSION="${OPENWRT_VERSION:-25.12.0}"
-YGGMESH_BUILD="23"
-FIRMWARE_VERSION="${OPENWRT_VERSION}-ym${YGGMESH_BUILD}"
+source "${SCRIPT_DIR}/common.sh"
 
 # ============================================================================
 # Device Database (device → target/subtarget + Image Builder profile)
@@ -78,20 +73,6 @@ device_config() {
 }
 
 # ============================================================================
-# Packages
-# ============================================================================
-
-PACKAGES=(
-    yggdrasil
-    luci
-    luci-proto-yggdrasil
-    tcpdump
-    iperf3
-    iwinfo
-    curl
-)
-
-# ============================================================================
 # Functions
 # ============================================================================
 
@@ -124,90 +105,16 @@ usage() {
     exit 1
 }
 
-builder_dir() {
-    echo "${BUILD_ROOT}/imagebuilder-${OPENWRT_VERSION}-${OPENWRT_TARGET//\//-}"
-}
-
-validate_inputs() {
-    # Fail early before downloading anything if required inputs are missing.
-    # :? fails if unset or empty; ? fails only if unset (empty string is allowed).
-    : "${DEFAULT_ROOT_PASSWORD:?DEFAULT_ROOT_PASSWORD must not be empty}"
-    : "${PRIVATE_SSID:?PRIVATE_SSID must not be empty}"
-    : "${MESH_ID:?MESH_ID must not be empty}"
-    : "${MESH_KEY:?MESH_KEY must not be empty}"
-    : "${YGG_PORT:?YGG_PORT must not be empty}"
-    : "${YGGDRASIL_DNS?YGGDRASIL_DNS must be set (can be empty)}"
-    : "${YGGDRASIL_PEERS?YGGDRASIL_PEERS must be set (can be empty)}"
-
-    # Validate that YGG_PORT is a valid port number
-    if ! [[ "$YGG_PORT" =~ ^[0-9]+$ ]] || [ "$YGG_PORT" -lt 1 ] || [ "$YGG_PORT" -gt 65535 ]; then
-        echo "Error: Invalid port in YGG_PORT: '$YGG_PORT'. Must be 1-65535." >&2
-        exit 1
-    fi
-
-    # Validate that MESH_KEY is at least 8 characters (SAE requirement)
-    if [ "${#MESH_KEY}" -lt 8 ]; then
-        echo "Error: MESH_KEY must be at least 8 characters long (WPA3-SAE requirement)." >&2
-        exit 1
-    fi
-
-    # Validate that YGGDRASIL_DNS contains only valid IPv6 addresses
-    if [ -n "$YGGDRASIL_DNS" ]; then
-        for ip in $YGGDRASIL_DNS; do
-            if ! python3 -c "import ipaddress, sys; ipaddress.IPv6Address(sys.argv[1])" "$ip" 2>/dev/null; then
-                echo "Error: Invalid IPv6 address in YGGDRASIL_DNS: '$ip'" >&2
-                echo "This will crash dnsmasq and break the router's IPv4 DHCP server." >&2
-                exit 1
-            fi
-        done
-    fi
-}
-
-download_builder() {
-    local dir
-    dir="$(builder_dir)"
-
-    if [ -d "$dir" ]; then
-        echo "Image Builder already downloaded at ${dir##*/}, skipping..."
-        return
-    fi
-
-    # OpenWrt 25.x uses .tar.zst, older uses .tar.xz
-    local base_url="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/${OPENWRT_TARGET}/openwrt-imagebuilder-${OPENWRT_VERSION}-${OPENWRT_TARGET//\//-}.Linux-x86_64"
-    echo "Downloading OpenWrt Image Builder ${OPENWRT_VERSION} for ${OPENWRT_TARGET}..."
-    mkdir -p "$dir"
-
-    if wget -q --spider "${base_url}.tar.zst" 2>/dev/null; then
-        wget -q --show-progress -O- "${base_url}.tar.zst" | zstd -d | tar -x --strip-components=1 -C "$dir"
-    else
-        wget -q --show-progress -O- "${base_url}.tar.xz" | tar -xJ --strip-components=1 -C "$dir"
-    fi
-}
-
 build_firmware() {
     local dir
-    dir="$(builder_dir)"
+    dir="$(get_builder_dir "$OPENWRT_TARGET")"
 
     local packages
-    packages="${PACKAGES[*]} ${PACKAGES_EXTRA:-}"
+    packages="${COMMON_PACKAGES[*]} ${PACKAGES_EXTRA:-}"
 
-    # Create temp FILES dir with version/profile
+    # Create temp FILES dir with version/profile and inputs
     local tmpfiles
-    tmpfiles=$(mktemp -d)
-    cp -a "${PROJECT_DIR}/files/"* "$tmpfiles/"
-    mkdir -p "$tmpfiles/etc/yggmesh/inputs"
-    echo "$FIRMWARE_VERSION" > "$tmpfiles/etc/yggmesh/version"
-    echo "$PROFILE" > "$tmpfiles/etc/yggmesh/profile"
-    echo "$PORT_MAP" > "$tmpfiles/etc/yggmesh/port_map"
-
-    # Bake build-time inputs into the firmware.
-    echo "$YGGDRASIL_DNS" > "$tmpfiles/etc/yggmesh/inputs/yggdrasil_dns"
-    echo "$DEFAULT_ROOT_PASSWORD" > "$tmpfiles/etc/yggmesh/inputs/root_password"
-    echo "$YGGDRASIL_PEERS" > "$tmpfiles/etc/yggmesh/inputs/yggdrasil_peers"
-    echo "$PRIVATE_SSID" > "$tmpfiles/etc/yggmesh/inputs/private_ssid"
-    echo "$MESH_ID" > "$tmpfiles/etc/yggmesh/inputs/mesh_id"
-    echo "$MESH_KEY" > "$tmpfiles/etc/yggmesh/inputs/mesh_key"
-    echo "$YGG_PORT" > "$tmpfiles/etc/yggmesh/inputs/ygg_port"
+    tmpfiles=$(prepare_files_dir "$PROFILE" "$PORT_MAP")
 
     echo "Building firmware for profile: ${PROFILE}"
     echo "Packages: ${packages}"
@@ -318,6 +225,6 @@ mkdir -p "$BUILD_ROOT"
 echo "Build root: ${BUILD_ROOT}"
 echo ""
 
-download_builder
 validate_inputs
+download_builder "$OPENWRT_TARGET"
 build_firmware
