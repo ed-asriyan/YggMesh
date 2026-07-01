@@ -88,7 +88,7 @@ PRIVATE_SSID="YggMesh" \
 DEFAULT_ROOT_PASSWORD="yggmesh" \
 YGGDRASIL_DNS="324:71e:281a:9ed3::53 302:db60::53 202:1d4e:724e:de52:8273:e2b5:4988:a9ba" \
 YGGDRASIL_PEERS="tls://example.com:443" \
-./scripts/build.sh axt1800
+./scripts/build_router.sh axt1800
 ```
 
 The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target). Output lands in `output/`.
