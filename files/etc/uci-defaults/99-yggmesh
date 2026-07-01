@@ -42,6 +42,12 @@ rm -rf /etc/yggmesh/inputs
 # Fixed router IPv4 address for local WiFi
 PRIV_IP="10.0.0.1"
 
+# Fixed WiFi channel for 2.4GHz. Used by WiFi Mesh - all nodes must share same channel for mesh peering - cannot be "auto"
+WIFI_2G_CHANNEL=1
+
+# Fixed WiFi channel for 5GHz (dual-band devices only)
+WIFI_5G_CHANNEL="auto"
+
 # ============================================================================
 # 1. IDENTITY GENERATION
 # ============================================================================
@@ -203,13 +209,11 @@ for radio in $RADIOS; do
 done
 
 # Fixed channels — all mesh nodes must be on the same channel per band
-# 2.4GHz: channel 1 (DFS-free, least congested of 1/6/11)
-# 5GHz: channel 36 (DFS-free, universal chipset support)
 if [ -n "$RADIO_2G" ]; then
-    uci set "wireless.${RADIO_2G}.channel=1"
+    uci set "wireless.${RADIO_2G}.channel=${WIFI_2G_CHANNEL}"
 fi
 if [ -n "$RADIO_5G" ] && [ "$DUAL_BAND" = "true" ]; then
-    uci set "wireless.${RADIO_5G}.channel=36"
+    uci set "wireless.${RADIO_5G}.channel=${WIFI_5G_CHANNEL}"
 fi
 
 # --- 2.4GHz radio: always mesh backhaul; AP only if single-band ---
@@ -363,20 +367,23 @@ set dhcp.private.limit='150'
 set dhcp.private.leasetime='12h'
 # Advertise router's own IPv4 for DNS
 # Note: DHCPv4 option 6 cannot be an IPv6 address
+delete dhcp.private.dhcp_option
 add_list dhcp.private.dhcp_option='6,${PRIV_IP}'
 
 # Configure Dnsmasq to use Yggdrasil DNS, alongside reliable public DNS
 # This bypasses potentially broken/hijacked ISP DNS so public peers always resolve
 set dhcp.@dnsmasq[0].noresolv='1'
 set dhcp.@dnsmasq[0].localuse='1'
-add_list dhcp.@dnsmasq[0].server='1.1.1.1'
-add_list dhcp.@dnsmasq[0].server='8.8.8.8'
 DHCP_EOF
 
+# Reset server list before populating (prevents duplicates on firmware upgrade)
+uci -q delete dhcp.@dnsmasq[0].server
 # Yggdrasil DNS resolvers, prepended only when baked in at build time
 for yggdrasil_dns in $YGGDRASIL_DNS; do
     uci add_list dhcp.@dnsmasq[0].server="$yggdrasil_dns"
 done
+uci add_list dhcp.@dnsmasq[0].server='1.1.1.1'
+uci add_list dhcp.@dnsmasq[0].server='8.8.8.8'
 
 uci commit dhcp
 
@@ -427,8 +434,8 @@ YGG_EOF
 # Bake in Yggdrasil peers (space-separated list) only when provided at build time
 PEER_ID=1
 for ygg_peer in $YGGDRASIL_PEERS; do
-    uci set network.ygg_peer_${PEER_ID}=yggdrasil_yggdrasil_peer
-    uci set network.ygg_peer_${PEER_ID}.address="$ygg_peer"
+    uci set network.ygg_default_peer_${PEER_ID}=yggdrasil_yggdrasil_peer
+    uci set network.ygg_default_peer_${PEER_ID}.address="$ygg_peer"
     PEER_ID=$((PEER_ID + 1))
 done
 
@@ -496,6 +503,7 @@ set dhcp.private.ra_default='1'
 set dhcp.private.ra_slaac='1'
 PRIV6_EOF
     # Advertise Yggdrasil DNS over RA only when baked in at build time
+    uci -q delete dhcp.private.dns
     for yggdrasil_dns in $YGGDRASIL_DNS; do
         uci add_list dhcp.private.dns="$yggdrasil_dns"
     done
