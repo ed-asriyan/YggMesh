@@ -46,6 +46,10 @@ COMMON_PACKAGES=(
     iperf3
     iwinfo
     curl
+    -wpad-basic-wolfssl
+    -wpad-basic-mbedtls
+    wpad-mesh-wolfssl
+    wifi-scripts
 )
 
 # ============================================================================

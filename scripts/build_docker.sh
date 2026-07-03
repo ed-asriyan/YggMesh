@@ -123,4 +123,3 @@ build_docker_image
 
 echo ""
 echo "Build complete! Docker image '${DOCKER_IMAGE}' is ready."
-
