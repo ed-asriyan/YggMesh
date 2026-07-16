@@ -2,9 +2,7 @@
 Yggdrasil over WiFi Mesh
 
 > [!WARNING]
-> This project is on extremely early stage. Something may break even if it's supposed ot work. Do it on your own risk. 
-
-> **Important:** This firmware is currently designed for **fresh (virgin) installations only**. Over-The-Air (OTA) upgrades via `sysupgrade` or LuCI are not supported at this stage. Upgrading an existing installation may not work and wipe the node's cryptograpic identity, Yggdrasil keys, and custom configurations.
+> This project is on extremely early stage. Something may break even if it's supposed ot work. Do it on your own risk.
 
 ## The Idea
 This project builds a mesh network for cases where normal network infrastructure is unavailable or unreliable.
@@ -22,7 +20,9 @@ Technically, it combines these layers:
 - **[Yggdrasil](https://yggdrasil-network.github.io)** — an end-to-end encrypted L3 overlay network that runs directly on the 802.11s interfaces. Every node gets a permanent `200::/7` IPv6 address derived from its public key. Nodes discover each other via multicast on the mesh interfaces — no static configuration, no central registry, no internet required.
 - **WiFi hotspot** — each node creates a public, open WiFi access point (`YggMesh`) with 802.11r/k/v seamless roaming. Connected clients receive a `200::/7` Yggdrasil IPv6 address via SLAAC.
 
-## How to Deploy
+## How to start
+> **Important:** This firmware is currently designed for **fresh (virgin) installations only**. Over-The-Air (OTA) upgrades via `sysupgrade` or LuCI are not supported at this stage. Upgrading an existing installation may not work and wipe the node's cryptograpic identity, Yggdrasil keys, and custom configurations.
+
 **Requirements:** A supported OpenWrt router (see table below).
 
 **Supported devices:**
@@ -37,28 +37,29 @@ Technically, it combines these layers:
 | Cudy AP3000 Outdoor V1 | `ap3000outdoor` | [Amazon](https://a.co/d/0gA2n0vt) |
 | Cudy WR3000 V1 | `wr3000` | [Cudy](https://www.cudy.com/products/wr3000-1-0) |
 
+**Steps:**
+1. Download the firmware for your device from the [Releases](https://github.com/ed-asriyan/YggMesh/releases) page, or [build it yourself](#building).
+2. Flash it to your router.
+   1. Option A. Flash the devide via dootloader. The specific to-do actions depend on your device, should you google the instructions. Usually it requires using TFTP server or holding _reset_ button.
+   2. Option B. If you have OpenWRT and LuCI installed, go to System → Backup/Flash Firmware or do `sysupgrade -n -v /tmp/openwrt-*-sysupgrade.bin` (make sure to **not** keep settings).
+4. Wait for the router to reboot. First boot takes about 30-60 seconds longer than usual while the node configures itself.
+5. Repeat for every router you want in the mesh. No per-node configuration is needed — all nodes are identical.
+
+> [!WARNING]
+> **Change the default root password after first boot.**
+> All nodes ship with the password `yggmesh`. Change it via LuCI → System → Administration or by running `passwd` over SSH.
+
 **What each node does after first boot:**
 - Brings up 802.11s mesh interfaces on all available radios and joins the shared mesh with SAE encryption.
 - Runs Yggdrasil directly on the 802.11s interfaces, discovering peers via multicast. No static peers or internet connection needed.
 - Advertises a `300::/64` Yggdrasil subnet on `br-private` so clients receive a `200::/7` IPv6 address via SLAAC.
 - Creates an open public WiFi hotspot (`YggMesh`) across all nodes.
 
-**Steps:**
-1. Download the firmware for your device from the [Releases](https://github.com/ed-asriyan/YggMesh/releases) page, or [build it yourself](#building).
-2. Flash it to your router via LuCI (System → Backup/Flash Firmware) or `sysupgrade` (make sure to **not** keep settings):
-   ```
-   sysupgrade -n -v /tmp/openwrt-*-sysupgrade.bin
-   ```
-3. Wait for the router to reboot. First boot takes about 30 seconds longer than usual while the node configures itself.
-4. Repeat for every router you want in the mesh. No per-node configuration is needed — all nodes are identical.
+## Backlog
+You can find the next items planned to add to YggMesh [here](https://github.com/users/ed-asriyan/projects/1/views/1).
 
-> [!WARNING]
-> **Change the default root password after first boot.**
-> All nodes ship with the password `yggmesh`. Change it via LuCI → System → Administration or by running `passwd` over SSH.
-
-### Building
-
-#### Option A: GitHub Actions (recommended for forks)
+## Building
+### Option A: GitHub Actions (recommended for forks)
 Fork this repository, then go to **Actions → Build Firmware → Run workflow**. Fill in the inputs and run. The firmware artifact will be available for download when the job completes.
 
 | Input | Description |
@@ -73,7 +74,7 @@ To trigger a release build for all devices at once, push a git tag (e.g. `v1.0.0
 
 **If you edit the code:** `MESH_ID`, `MESH_KEY`, and `YGG_PORT` are hardcoded in the workflow and not exposed as inputs — all nodes built from the same fork share the same mesh credentials and can peer with each other. It is recommended to keep them at their default values so all forks can peer with one another.
 
-#### Option B: Local build
+### Option B: Local build
 Requires either:
 - Linux with `wget`, `zstd`, `make`, and `python3`
 - This repository opened in the devcontainer (works on ARM Macs)
