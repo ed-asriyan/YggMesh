@@ -9,8 +9,9 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background-color: #000;
             color: #fff;
-            margin: 0;
-            padding: 12vh 1.5rem;
+            margin: 0 auto;
+            max-width: 750px;
+            padding: 10vh 1.5rem;
             text-align: center;
             transition: background-color 0.4s ease, color 0.4s ease;
         }
@@ -59,7 +60,6 @@
             border-radius: 12px;
             padding: 2.5rem 1.5rem;
             text-align: left;
-            max-width: 500px;
             margin: 0 auto;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
             animation: slideUp 0.4s ease-out;
@@ -79,7 +79,6 @@
 
         #step3 {
             display: none;
-            max-width: 750px;
             margin: 4vh auto;
             text-align: left;
             animation: fadeIn 0.4s ease-out;
@@ -174,6 +173,21 @@
             text-align: center;
         }
 
+        .spinner {
+            display: inline-block;
+            width: 1em;
+            height: 1em;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            vertical-align: middle;
+            margin-left: 8px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         @media (max-width: 640px) {
             #step3 .lp-logo { font-size: 2rem; line-height: 1.2; }
             #step3 .tagline { font-size: 1rem; }
@@ -184,13 +198,13 @@
 <body>
 
     <div id="step1">
-        <h1 class="global-h1" style="font-size: 40vw; margin: 0;">👀</h1>
+        <h1 class="global-h1" style="font-size: 180px; margin: 0;">👀</h1>
         <p class="global-p highlight-text" style="display: inline-block;">Looking for free Wi-Fi, huh?</p>
         <p class="global-p">You just clicked the first open network you saw without a second thought.</p>
         <button class="btn" onclick="nextStep(1)">Okay, you got me. 🥺</button>
     </div>
 
-    <div id="step2" class="step-card" style="position: relative; padding-bottom: 4rem;">
+    <div id="step2" class="step-card" style="position: relative; padding-bottom: 4rem; max-width: 430px;">
         <h2 class="global-h2">You got lucky today 🍀</h2>
         <p class="global-p" style="color: #444;">You're connected to experimental mesh network <strong>YggMesh</strong> 🌐</p>
         <p class="global-p" style="color: #444;">And since you're already here freeloading my Wi-Fi, let's make a deal. You spend 30 seconds reading about a cool project, and <strong><i>maybe</i> tell a friend about it (Instagram story counts btw).</strong></p>
@@ -209,7 +223,7 @@
                 <span class="dot">&middot;</span>
                 <a href="#how-it-works">How it works</a>
                 <span class="dot">&middot;</span>
-                <a href="https://github.com/ed-asriyan/YggMesh/releases" target="_blank">Download</a>
+                <a href="https://yggmesh.com" target="_blank">Project Website</a>
                 <span class="dot">&middot;</span>
                 <a href="#contact">Contact</a>
             </nav>
@@ -231,7 +245,7 @@
 
         <div class="diagram-container">
             <!-- Make sure the image is in the router's memory at this path, otherwise there will be a broken icon without internet -->
-            <img src="./diagram.drawio.svg" alt="YggMesh node topology: multiple mesh nodes automatically sharing one internet uplink across the network"/>
+            <img src="/diagram.drawio.svg" alt="YggMesh node topology: multiple mesh nodes automatically sharing one internet uplink across the network"/>
         </div>
 
         <h2 id="scenarios">Scenarios</h2>
@@ -281,6 +295,29 @@
                 window.scrollTo(0, 0); 
             }
         }
+
+        // Intercept form submission to show loader and speed up process
+        document.addEventListener("DOMContentLoaded", () => {
+            const form = document.querySelector('form');
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const btn = document.querySelector('.portal-action-box button');
+                    btn.innerHTML = 'Connecting... <span class="spinner"></span>';
+                    btn.disabled = true;
+                    btn.style.opacity = '0.8';
+
+                    const authUrl = "$authtarget" + "?fas=" + encodeURIComponent("$fas") + "&landing=yes";
+                    
+                    fetch(authUrl, { mode: "no-cors" })
+                        .finally(() => {
+                            setTimeout(() => {
+                                window.location.href = "https://yggmesh.com";
+                            }, 500); // short wait to ensure openNDS processed auth
+                        });
+                });
+            }
+        });
 
         // Allow user to access the internet if they click on any external link
         document.addEventListener("click", (event) => {

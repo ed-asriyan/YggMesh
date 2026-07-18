@@ -28,10 +28,10 @@ landing_page() {
     echo "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
     echo "<title>Connected</title>"
     echo "<style>body{font-family:sans-serif;background:#000;color:#fff;text-align:center;padding:20vh 1rem;}</style>"
-    echo "<meta http-equiv=\"refresh\" content=\"3;url=https://github.com/ed-asriyan/YggMesh/releases\">"
+    echo "<meta http-equiv=\"refresh\" content=\"1;url=https://yggmesh.com\">"
     echo "</head><body>"
     echo "<h2>🌐 Connection successful!</h2>"
-    echo "<p style=\"color:#aaa;\">You are now online. You can close this window or wait to be redirected.</p>"
+    echo "<p style=\"color:#aaa;\">You are now online. Redirecting...</p>"
     echo "</body></html>"
     footer
 }
