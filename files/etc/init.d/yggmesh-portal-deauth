@@ -1,0 +1,16 @@
+#!/bin/sh /etc/rc.common
+# Show the captive portal on every Wi-Fi connect: deauth openNDS clients on disassociation
+
+START=99
+USE_PROCD=1
+
+start_service() {
+    procd_open_instance
+    procd_set_param command /usr/sbin/yggmesh-portal-deauth
+    procd_set_param respawn 3600 5 0
+    procd_close_instance
+}
+
+service_triggers() {
+    procd_add_reload_trigger wireless
+}

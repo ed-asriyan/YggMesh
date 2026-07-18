@@ -1,0 +1,27 @@
+#!/bin/sh
+# YggMesh Captive Portal (openNDS) — First Boot Configuration
+# Runs once on first boot via uci-defaults, after 99-yggmesh.
+#
+# Stock openNDS: CPD (HTTP probe interception) + RFC 8910/8908 (DHCP option 114
+# and captive+json API) are handled by openNDS itself. Only the splash page is ours.
+
+uci batch <<-PORTAL_EOF
+set opennds.@opennds[0].enabled='1'
+set opennds.@opennds[0].gatewayinterface='br-private'
+# Serve splash.html via ThemeSpec
+set opennds.@opennds[0].login_option_enabled='3'
+set opennds.@opennds[0].themespec_path='/usr/lib/opennds/theme_yggmesh.sh'
+# Default 'status.client' redirects all client traffic to the router's port 80 into openNDS, hiding LuCI
+set opennds.@opennds[0].gatewayfqdn='disable'
+# openNDS only lets clients reach the router on 53/67/22/443; LuCI here is plain HTTP
+add_list opennds.@opennds[0].users_to_router='allow tcp port 80'
+PORTAL_EOF
+
+uci commit opennds
+
+# Show the portal on every Wi-Fi connect, not once per 24h session
+/etc/init.d/yggmesh-portal-deauth enable
+
+logger -t yggmesh "Captive portal configured (openNDS on br-private)"
+
+exit 0

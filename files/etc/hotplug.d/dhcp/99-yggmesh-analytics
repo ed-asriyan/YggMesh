@@ -1,0 +1,5 @@
+#!/bin/sh
+# Log when a client gets a DHCP lease (Wi-Fi connected)
+if [ "$ACTION" = "add" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - action: wifi_connected" >> /var/log/yggmesh-analytics.log
+fi
