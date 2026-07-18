@@ -6,6 +6,9 @@ uci set opennds.@opennds[0].login_option_enabled='3'
 uci set opennds.@opennds[0].themespec_path='/usr/lib/opennds/theme_yggmesh.sh'
 uci set opennds.@opennds[0].gatewayfqdn='disable'
 uci set opennds.@opennds[0].max_page_size='20480'
+uci set opennds.@opennds[0].dhcp_default_url_enable='0'
+uci set opennds.@opennds[0].authidletimeout='30'
+uci set opennds.@opennds[0].sessiontimeout='30'
 uci commit opennds
 
 exit 0
