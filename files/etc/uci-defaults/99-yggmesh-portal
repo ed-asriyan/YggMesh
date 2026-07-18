@@ -1,0 +1,10 @@
+#!/bin/sh
+
+uci set opennds.@opennds[0].enabled='1'
+uci set opennds.@opennds[0].gatewayinterface='br-private'
+uci set opennds.@opennds[0].login_option_enabled='3'
+uci set opennds.@opennds[0].themespec_path='/usr/lib/opennds/theme_yggmesh.sh'
+uci set opennds.@opennds[0].gatewayfqdn='disable'
+uci commit opennds
+
+exit 0

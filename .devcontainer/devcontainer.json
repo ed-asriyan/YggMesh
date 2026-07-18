@@ -2,12 +2,8 @@
     "name": "YggMesh Dev Container",
     "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
     "runArgs": [
-        "--platform=linux/amd64",
-        "--privileged"
+        "--platform=linux/amd64"
     ],
-    "features": {
-        "ghcr.io/devcontainers/features/docker-in-docker:2": {}
-    },
     "containerEnv": {
         "DEBIAN_FRONTEND": "noninteractive",
         "TZ": "Etc/UTC"

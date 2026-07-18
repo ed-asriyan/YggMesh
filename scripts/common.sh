@@ -46,6 +46,9 @@ COMMON_PACKAGES=(
     iperf3
     iwinfo
     curl
+    -dnsmasq
+    dnsmasq-full
+    opennds
 )
 
 # ============================================================================

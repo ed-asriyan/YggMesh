@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YggMesh</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #000;
+            color: #fff;
+            margin: 0;
+            padding: 12vh 1.5rem;
+            text-align: center;
+            transition: background-color 0.4s ease, color 0.4s ease;
+        }
+        .global-h1 {
+            font-size: 2.2rem;
+            margin-bottom: 1rem;
+            line-height: 1.2;
+        }
+        .global-h2 {
+            font-size: 1.8rem;
+            margin-top: 0;
+            margin-bottom: 1rem;
+        }
+        .global-p {
+            font-size: 1.2rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.4;
+        }
+        
+        .btn {
+            background-color: #fff;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            padding: 1.2rem 2rem;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            max-width: 400px;
+            margin-top: 1rem;
+            transition: transform 0.1s;
+        }
+        .btn:active { transform: scale(0.97); }
+        .btn-blue {
+            background-color: #0366d6;
+            color: #fff;
+        }
+
+        #step1 .global-p { color: #aaa; }
+        
+        .step-card {
+            display: none;
+            background-color: #fff;
+            color: #111;
+            border-radius: 12px;
+            padding: 2.5rem 1.5rem;
+            text-align: left;
+            max-width: 500px;
+            margin: 0 auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            animation: slideUp 0.4s ease-out;
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .highlight-text {
+            background-color: #000;
+            color: #fff !important;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-weight: 700;
+        }
+
+        #step3 {
+            display: none;
+            max-width: 750px;
+            margin: 4vh auto;
+            text-align: left;
+            animation: fadeIn 0.4s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        #step3 header {
+            text-align: center;
+            border-bottom: 1px solid #eaeaea;
+            padding: 1rem 0 2rem;
+            margin-bottom: 2.5rem;
+        }
+        #step3 .lp-logo { 
+            font-size: 2.8rem; 
+            font-weight: 700; 
+            letter-spacing: -0.02em;
+            color: #111;
+            margin: 0;
+            line-height: 1.3;
+        }
+        #step3 .lp-logo span { color: #0366d6; }
+        #step3 .tagline { 
+            font-size: 1.1rem;
+            font-weight: 400;
+            color: #555;
+            margin-top: 0.5rem;
+            margin-bottom: 0;
+            text-transform: none;
+            letter-spacing: normal;
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+        #step3 .meta-row { 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 0.6rem; 
+            margin-top: 1.5rem; 
+            flex-wrap: wrap;
+            font-size: 0.95rem;
+        }
+        #step3 .meta-row .dot { color: #999; }
+        #step3 .meta-row a { color: #0366d6; text-decoration: none; font-weight: 500; }
+        #step3 .meta-row a:hover { text-decoration: underline; }
+        #step3 p { 
+            font-size: 1.1rem; 
+            color: #333; 
+            margin-bottom: 1.2rem;
+        }
+        #step3 h2 { 
+            color: #555; 
+            margin-top: 2.5em; 
+            font-size: 0.9rem; 
+            text-transform: uppercase; 
+            letter-spacing: 0.05em; 
+            border-bottom: 1px solid #eaeaea;
+            padding-bottom: 0.5em;
+        }
+        #step3 h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #111;
+            margin-top: 1.8em;
+            margin-bottom: 0.4em;
+        }
+        #step3 ul { margin-top: 1rem; padding-left: 1.2rem; }
+        #step3 li { margin-bottom: 0.8rem; font-size: 1.05rem; color: #333; }
+        #step3 code {
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            background: #f6f8fa;
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-size: 0.85em;
+        }
+        #step3 .diagram-container {
+            width: 100%;
+            margin: 2.5rem auto;
+            display: block;
+            overflow: hidden;
+            background: #fff;
+        }
+        #step3 .diagram-container img { width: 100%; height: auto; display: block; }
+        
+        .portal-action-box {
+            background: #f6f8fa;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 2.5rem 0;
+            text-align: center;
+        }
+
+        @media (max-width: 640px) {
+            #step3 .lp-logo { font-size: 2rem; line-height: 1.2; }
+            #step3 .tagline { font-size: 1rem; }
+            #step3 p, #step3 li { font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="step1">
+        <h1 class="global-h1" style="font-size: 40vw; margin: 0;">👀</h1>
+        <p class="global-p highlight-text" style="display: inline-block;">Looking for free Wi-Fi, huh?</p>
+        <p class="global-p">You just clicked the first open network you saw without a second thought.</p>
+        <button class="btn" onclick="nextStep(1)">Okay, you got me. 🥺</button>
+    </div>
+
+    <div id="step2" class="step-card" style="position: relative; padding-bottom: 4rem;">
+        <h2 class="global-h2">You got lucky today 🍀</h2>
+        <p class="global-p" style="color: #444;">You're connected to experimental mesh network <strong>YggMesh</strong> 🌐</p>
+        <p class="global-p" style="color: #444;">And since you're already here freeloading my Wi-Fi, let's make a deal. You spend 30 seconds reading about a cool project, and <strong><i>maybe</i> tell a friend about it (Instagram story counts btw).</strong></p>
+        <p class="global-p" style="color: #444;">In exchange, I won't hack u* 👉👈</p>
+        <button class="btn btn-blue" style="margin: 0 auto;" onclick="nextStep(2)">Deal. Show me the project 🤝</button>
+
+        <p style="position: fixed; bottom: 3rem; left: 0; color: #888; font-size: 0.85rem; width: 100%; text-align: center; margin: 0;">*It's a joke, just in case you're a lawyer 😅</p>
+    </div>
+
+    <div id="step3">
+        <header>
+            <h1 class="lp-logo">Ygg<span>Mesh</span></h1>
+            <h2 class="tagline">A self-organizing encrypted mesh network for when the grid goes down.</h2>
+            <nav class="meta-row" aria-label="Page sections">
+                <a href="#scenarios">Scenarios</a>
+                <span class="dot">&middot;</span>
+                <a href="#how-it-works">How it works</a>
+                <span class="dot">&middot;</span>
+                <a href="https://github.com/ed-asriyan/YggMesh/releases" target="_blank">Download</a>
+                <span class="dot">&middot;</span>
+                <a href="#contact">Contact</a>
+            </nav>
+        </header>
+
+        <div class="hero">
+            <p><strong>YggMesh</strong> is open-source firmware that turns low-cost travel routers into a <strong>self-organizing, zero-configuration encrypted mesh network</strong></p>
+            <p>Nodes discover each other automatically and start routing the moment they power on. <strong>The moment at least one node gets internet access, the whole network does too.</strong></p>
+        </div>
+
+        <div class="portal-action-box">
+            <p style="margin-top: 0; font-weight: 600; color: #111;">Ready to join the grid?</p>
+            <form action="$authtarget" method="get" style="margin: 0;">
+                <input type="hidden" name="tok" value="$tok">
+                <button type="submit" class="btn btn-blue" style="margin: 0; max-width: 300px;">Connect to Network 🚀</button>
+            </form>
+        </div>
+
+        <div class="diagram-container">
+            <!-- Make sure the image is in the router's memory at this path, otherwise there will be a broken icon without internet -->
+            <img src="./diagram.drawio.svg" alt="YggMesh node topology: multiple mesh nodes automatically sharing one internet uplink across the network"/>
+        </div>
+
+        <h2 id="scenarios">Scenarios</h2>
+        <h3>City under pressure</h3>
+        <p>Cellular networks go down in a crowded city — no calls, no news, no way to reach the outside world. But a few people in the crowd have YggMesh routers tucked into their backpacks, running off power banks. A few more are plugged in at nearby cafes, shops, and apartments. The routers find each other automatically and form a shared network. People nearby connect to the Wi-Fi like they normally would. Some buildings still have fiber internet — those nodes bring the whole network online. Everyone in the mesh can communicate, read news, and share what's happening — automatically, without any setup, without any central infrastructure.</p>
+
+        <h3>Village cut off from the world</h3>
+        <p>In a small town, most people rely on cellular LTE. A handful of homes have fiber. Then one day the cellular service goes down — 90% of residents lose their connection. With YggMesh routers plugged in across homes, neighbors' devices find each other wirelessly, forming a neighborhood-wide network. No configuration needed — just plug in. The 10% of homes with fiber automatically share their connection with the whole village. If two neighbors want a faster link, they can run an ethernet cable between their routers — it just works. The more homes that join, the more resilient and fast the network gets.</p>
+
+        <h3>Off-grid camping</h3>
+        <p>A group is camping deep in the forest, far from any signal. Someone plugs two small routers into power banks. Within seconds, an invisible local network forms across the camp — no accounts, no passwords, no setup. Everyone connects to Wi-Fi and can share photos, send messages, and see the camp map. Later, a car arrives with a portable satellite dish connected to just one of the routers. Without touching any settings, every phone in the camp buzzes with notifications — one internet connection, shared instantly with everyone.</p>
+
+        <h2 id="how-it-works">How it works</h2>
+        <p>Flash the YggMesh firmware onto a supported travel router to turn it into a mesh node.</p>
+        <p>Once powered on, each node silently scans for nearby peers over a hidden wireless channel and forms direct, encrypted connections. We use <a href="https://yggdrasil-network.github.io" target="_blank" rel="noopener">Yggdrasil</a>'s powerful routing protocol to find the fastest path for data across all connected nodes.</p>
+        <p>To the end user, it looks like a regular open WiFi network. When you connect your phone or laptop to any YggMesh router, your device is securely merged into the entire local mesh. You can communicate or share files with anyone else connected to the mesh network, even if they are several hops (routers) away.</p>
+        <p>If a router is plugged into a live internet uplink, it can optionally be configured as a gateway to bring the local offline mesh into the global Yggdrasil network and the wider internet (clearnet).</p>
+        <p>No configuration files needed for the local mesh. No pairing steps. No central server.</p>
+
+        <h2 id="contact">Contact</h2>
+        <p><strong>Want to help build resilient off-grid communication?</strong> You can join at any level:</p>
+        <ul>
+            <li>Run YggMesh on your own router and share field feedback from real-world conditions.</li>
+            <li>Sponsor by purchasing a physical YggMesh router.</li>
+            <li>Contribute code, documentation, test cases, or hardware compatibility notes.</li>
+            <li>Help expand pilot networks, improve reliability, and back future releases.</li>
+        </ul>
+        <p><strong>Reach out at <a href="mailto:yggmesh@asriyan.me">yggmesh@asriyan.me</a> or visit <a href="https://asriyan.me" target="_blank" rel="noopener">asriyan.me</a> for other contact options.</strong></p>
+        
+        <br><br>
+    </div>
+
+    <script>
+        function nextStep(step) {
+            if (step === 1) {
+                document.getElementById('step1').style.display = 'none';
+                document.body.style.backgroundColor = '#f4f4f5';
+                document.body.style.color = '#111'; // Prepare dark text color for light theme
+                document.getElementById('step2').style.display = 'block';
+            } else if (step === 2) {
+                document.getElementById('step2').style.display = 'none';
+                // Restore original body styles of the landing page
+                document.body.style.backgroundColor = '#fff';
+                document.body.style.padding = '0 1rem'; 
+                
+                document.getElementById('step3').style.display = 'block';
+                window.scrollTo(0, 0); 
+            }
+        }
+
+        // Allow user to access the internet if they click on any external link
+        document.addEventListener("click", (event) => {
+            const link = event.target.closest('a[href^="http"], a[href^="mailto:"]');
+            if (link) {
+                event.preventDefault();
+                
+                // Send a background request for openNDS authorization
+                fetch("$authtarget?tok=$tok", { mode: "no-cors" })
+                    .finally(() => {
+                        // Immediately redirect to the clicked link
+                        window.location.href = link.href;
+                    });
+            }
+        });
+    </script>
+</body>
+</html>
