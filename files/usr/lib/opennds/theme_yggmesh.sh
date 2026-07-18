@@ -28,7 +28,7 @@ landing_page() {
     echo "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
     echo "<title>Connected</title>"
     echo "<style>body{font-family:sans-serif;background:#000;color:#fff;text-align:center;padding:20vh 1rem;}</style>"
-    echo "<meta http-equiv=\"refresh\" content=\"1;url=https://yggmesh.com\">"
+    echo "<meta http-equiv=\"refresh\" content=\"1;url=https://yggmesh.com?utm_source=captive_portal&amp;utm_medium=wifi&amp;utm_campaign=yggmesh_router\">"
     echo "</head><body>"
     echo "<h2>🌐 Connection successful!</h2>"
     echo "<p style=\"color:#aaa;\">You are now online. Redirecting...</p>"
