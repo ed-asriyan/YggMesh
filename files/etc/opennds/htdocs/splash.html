@@ -224,6 +224,7 @@
             <p style="margin-top: 0; font-weight: 600; color: #111;">Ready to join the grid?</p>
             <form action="$authtarget" method="get" style="margin: 0;">
                 <input type="hidden" name="fas" value="$fas">
+                <input type="hidden" name="landing" value="yes">
                 <button type="submit" class="btn btn-blue" style="margin: 0; max-width: 300px;">Connect to Network 🚀</button>
             </form>
         </div>
@@ -288,7 +289,7 @@
                 event.preventDefault();
                 
                 // Send a background request for openNDS authorization
-                const authUrl = "$authtarget" + "?fas=" + encodeURIComponent("$fas");
+                const authUrl = "$authtarget" + "?fas=" + encodeURIComponent("$fas") + "&landing=yes";
                 fetch(authUrl, { mode: "no-cors" })
                     .finally(() => {
                         // Immediately redirect to the clicked link
