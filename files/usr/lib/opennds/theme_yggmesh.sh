@@ -21,6 +21,8 @@ landing_page() {
     # Actually authenticate the user in openNDS core
     auth_log
 
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - action: step3_connect_clicked" >> /var/log/yggmesh-analytics.log
+
     # Send a clean success response for the form submission
     # (Captive Network Assistants usually close themselves as soon as internet appears,
     # but if they don't, we show a nice message and redirect to the project repo).
@@ -37,6 +39,13 @@ landing_page() {
 }
 
 generate_splash_sequence() {
+    if [ -n "$custom" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - action: $custom" >> /var/log/yggmesh-analytics.log
+        footer
+    fi
+
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - action: splash_opened" >> /var/log/yggmesh-analytics.log
+
     authtarget="/opennds_preauth/"
     sed -e "s|\$authtarget|$authtarget|g" -e "s|\$fas|$fas|g" /etc/opennds/htdocs/splash.html
     footer

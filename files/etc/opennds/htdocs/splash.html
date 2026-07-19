@@ -279,12 +279,18 @@
     </div>
 
     <script>
+        function logAnalytics(action) {
+            const authUrl = "$authtarget" + "?fas=" + encodeURIComponent("$fas") + "&custom=" + encodeURIComponent(action);
+            fetch(authUrl, { mode: "no-cors" }).catch(() => {});
+        }
+
         function nextStep(step) {
             if (step === 1) {
                 document.getElementById('step1').style.display = 'none';
                 document.body.style.backgroundColor = '#f4f4f5';
                 document.body.style.color = '#111'; // Prepare dark text color for light theme
                 document.getElementById('step2').style.display = 'block';
+                logAnalytics('step1_clicked');
             } else if (step === 2) {
                 document.getElementById('step2').style.display = 'none';
                 // Restore original body styles of the landing page
@@ -293,6 +299,7 @@
                 
                 document.getElementById('step3').style.display = 'block';
                 window.scrollTo(0, 0); 
+                logAnalytics('step2_clicked');
             }
         }
 
