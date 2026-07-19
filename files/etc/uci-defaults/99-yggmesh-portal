@@ -11,4 +11,9 @@ uci set opennds.@opennds[0].authidletimeout='30'
 uci set opennds.@opennds[0].sessiontimeout='30'
 uci commit opennds
 
+# Добавляем DHCP Option 114 (RFC 8910 Captive Portal API)
+LAN_IP=$(uci -q get network.private.ipaddr | cut -d/ -f1)
+uci add_list dhcp.@dnsmasq[0].dhcp_option="114,http://$LAN_IP:2050/"
+uci commit dhcp
+
 exit 0

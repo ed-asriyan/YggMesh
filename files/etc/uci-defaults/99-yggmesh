@@ -515,7 +515,26 @@ else
 fi
 
 # ============================================================================
-# 10. FINAL
+# 10. CAPTIVE PORTAL (OpenNDS)
+# ============================================================================
+
+uci set opennds.@opennds[0].enabled='1'
+uci set opennds.@opennds[0].gatewayinterface='br-private'
+uci set opennds.@opennds[0].login_option_enabled='3'
+uci set opennds.@opennds[0].themespec_path='/usr/lib/opennds/theme_yggmesh.sh'
+uci set opennds.@opennds[0].gatewayfqdn='disable'
+uci set opennds.@opennds[0].max_page_size='20480'
+uci set opennds.@opennds[0].dhcp_default_url_enable='0'
+uci set opennds.@opennds[0].authidletimeout='30'
+uci set opennds.@opennds[0].sessiontimeout='30'
+uci commit opennds
+
+# Add DHCP Option 114 (RFC 8910 Captive Portal API)
+uci add_list dhcp.@dnsmasq[0].dhcp_option="114,http://${PRIV_IP}:2050/"
+uci commit dhcp
+
+# ============================================================================
+# 11. FINAL
 # ============================================================================
 
 # Log completion
