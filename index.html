@@ -173,7 +173,47 @@
                 font-size: 1rem;
             }
         }
+    
+        .lang-selector {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+        }
+        .lang-selector select {
+            padding: 0.3rem 0.5rem;
+            border: 1px solid #eaeaea;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            background: #fff;
+            cursor: pointer;
+            color: #333;
+            outline: none;
+        }
+        html:lang(en) [data-lang="ru"] { display: none !important; }
+        html:lang(ru) [data-lang="en"] { display: none !important; }
     </style>
+    <script>
+        (function() {
+            var userLang = navigator.language || navigator.userLanguage;
+            var defaultLang = userLang.toLowerCase().startsWith('ru') ? 'ru' : 'en';
+            var savedLang = localStorage.getItem('language');
+            var finalLang = savedLang || defaultLang;
+            document.documentElement.lang = finalLang;
+            
+            window.addEventListener('DOMContentLoaded', function() {
+                var select = document.getElementById('language-switcher');
+                if (select) {
+                    select.value = finalLang;
+                    select.addEventListener('change', function(e) {
+                        var newLang = e.target.value;
+                        document.documentElement.lang = newLang;
+                        localStorage.setItem('language', newLang);
+                    });
+                }
+            });
+        })();
+    </script>
+
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -189,59 +229,106 @@
 </head>
 <body>
     <header>
+        <div class="lang-selector">
+            <select id="language-switcher">
+                <option value="en">English</option>
+                <option value="ru">Русский</option>
+            </select>
+        </div>
         <h1 class="logo">Ygg<span>Mesh</span></h1>
-        <h2 class="tagline">A self-organizing encrypted mesh network for when the grid goes down.</h2>
+        <h2 class="tagline" data-lang="en">A self-organizing encrypted mesh network for when the grid goes down.</h2>
+        <h2 class="tagline" data-lang="ru">Самоорганизующаяся зашифрованная mesh-сеть на случай отключения связи.</h2>
         <nav class="meta-row" aria-label="Page sections">
-            <a href="#scenarios">Scenarios</a>
+            <a href="#scenarios" data-lang="en">Scenarios</a>
+            <a href="#scenarios" data-lang="ru">Сценарии</a>
             <span class="dot">&middot;</span>
-            <a href="#how-it-works">How it works</a>
+            <a href="#how-it-works" data-lang="en">How it works</a>
+            <a href="#how-it-works" data-lang="ru">Как это работает</a>
             <span class="dot">&middot;</span>
-            <a href="https://github.com/ed-asriyan/YggMesh/releases" target="_blank">Download</a>
+            <a href="https://github.com/ed-asriyan/YggMesh/releases" target="_blank" data-lang="en">Download</a>
+            <a href="https://github.com/ed-asriyan/YggMesh/releases" target="_blank" data-lang="ru">Скачать</a>
             <span class="dot">&middot;</span>
-            <a href="#contact">Contact</a>
+            <a href="#contact" data-lang="en">Contact</a>
+            <a href="#contact" data-lang="ru">Контакты</a>
         </nav>
     </header>
 
     <div class="hero">
-        <p><strong>YggMesh</strong> is open-source firmware that turns low-cost travel routers into a <strong>self-organizing, zero-configuration encrypted mesh network</strong></p>
+        <p data-lang="en"><strong>YggMesh</strong> is open-source firmware that turns low-cost travel routers into a <strong>self-organizing, zero-configuration encrypted mesh network</strong></p>
+        <p data-lang="ru"><strong>YggMesh</strong> — это прошивка с открытым исходным кодом, которая превращает недорогие портативные роутеры в <strong>самоорганизующуюся зашифрованную mesh-сеть, не требующую настройки</strong></p>
 
-        <p>Nodes discover each other automatically and start routing the moment they power on. <strong>The moment at least one node gets internet access, the whole network does too.</strong></p>
+        <p data-lang="en">Nodes discover each other automatically and start routing the moment they power on. <strong>The moment at least one node gets internet access, the whole network does too.</strong></p>
+        <p data-lang="ru">Узлы обнаруживают друг друга автоматически и начинают маршрутизацию сразу после включения. <strong>Как только хотя бы один узел получает доступ в интернет, его получает и вся сеть.</strong></p>
     </div>
 
     <div class="diagram-container">
         <a href="./diagram.drawio.svg" target="_blank" title="View full size">
-            <img src="./diagram.drawio.svg" alt="YggMesh node topology: multiple mesh nodes automatically sharing one internet uplink across the network"/>
+            <img src="./diagram.drawio.svg" alt="YggMesh node topology"/>
         </a>
     </div>
 
-    <h2 id="scenarios">Scenarios</h2>
+    <div id="scenarios">
+        <h2 data-lang="en">Scenarios</h2>
+        <h2 data-lang="ru">Сценарии</h2>
+    </div>
 
-    <h3>City under pressure</h3>
-    <p>Cellular networks go down in a crowded city — no calls, no news, no way to reach the outside world. But a few people in the crowd have YggMesh routers tucked into their backpacks, running off power banks. A few more are plugged in at nearby cafes, shops, and apartments. The routers find each other automatically and form a shared network. People nearby connect to the Wi-Fi like they normally would. Some buildings still have fiber internet — those nodes bring the whole network online. Everyone in the mesh can communicate, read news, and share what's happening — automatically, without any setup, without any central infrastructure.</p>
+    <h3 data-lang="en">City under pressure</h3>
+    <h3 data-lang="ru">Перегруженный город</h3>
+    <p data-lang="en">Cellular networks go down in a crowded city — no calls, no news, no way to reach the outside world. But a few people in the crowd have YggMesh routers tucked into their backpacks, running off power banks. A few more are plugged in at nearby cafes, shops, and apartments. The routers find each other automatically and form a shared network. People nearby connect to the Wi-Fi like they normally would. Some buildings still have fiber internet — those nodes bring the whole network online. Everyone in the mesh can communicate, read news, and share what's happening — automatically, without any setup, without any central infrastructure.</p>
+    <p data-lang="ru">В переполненном городе отказывают сотовые сети — ни звонков, ни новостей, ни связи с внешним миром. Но у нескольких людей в толпе в рюкзаках лежат роутеры YggMesh, работающие от повербанков. Еще несколько включены в ближайших кафе, магазинах и квартирах. Роутеры автоматически находят друг друга и образуют общую сеть. Люди поблизости подключаются к Wi-Fi как обычно. В некоторых зданиях еще работает оптоволоконный интернет — эти узлы открывают доступ в глобальную сеть для всех. Каждый в mesh-сети может общаться, читать новости и делиться происходящим — автоматически, без настроек и без центральной инфраструктуры.</p>
 
-    <h3>Village cut off from the world</h3>
-    <p>In a small town, most people rely on cellular LTE. A handful of homes have fiber. Then one day the cellular service goes down — 90% of residents lose their connection. With YggMesh routers plugged in across homes, neighbors' devices find each other wirelessly, forming a neighborhood-wide network. No configuration needed — just plug in. The 10% of homes with fiber automatically share their connection with the whole village. If two neighbors want a faster link, they can run an ethernet cable between their routers — it just works. The more homes that join, the more resilient and fast the network gets.</p>
+    <h3 data-lang="en">Village cut off from the world</h3>
+    <h3 data-lang="ru">Деревня, отрезанная от мира</h3>
+    <p data-lang="en">In a small town, most people rely on cellular LTE. A handful of homes have fiber. Then one day the cellular service goes down — 90% of residents lose their connection. With YggMesh routers plugged in across homes, neighbors' devices find each other wirelessly, forming a neighborhood-wide network. No configuration needed — just plug in. The 10% of homes with fiber automatically share their connection with the whole village. If two neighbors want a faster link, they can run an ethernet cable between their routers — it just works. The more homes that join, the more resilient and fast the network gets.</p>
+    <p data-lang="ru">В небольшом городе большинство людей пользуются сотовой связью LTE. В нескольких домах есть оптоволокно. В один прекрасный день сотовая связь пропадает — 90% жителей остаются без связи. Роутеры YggMesh, включенные в разных домах, находят друг друга по беспроводной сети, образуя общегородскую сеть. Никаких настроек не нужно — просто включите в розетку. 10% домов с оптоволокном автоматически делятся своим интернет-соединением со всей деревней. Если двум соседям нужен более быстрый канал, они могут проложить Ethernet-кабель между своими роутерами — это работает из коробки. Чем больше домов присоединяется, тем более устойчивой и быстрой становится сеть.</p>
 
-    <h3>Off-grid camping</h3>
-    <p>A group is camping deep in the forest, far from any signal. Someone plugs two small routers into power banks. Within seconds, an invisible local network forms across the camp — no accounts, no passwords, no setup. Everyone connects to Wi-Fi and can share photos, send messages, and see the camp map. Later, a car arrives with a portable satellite dish connected to just one of the routers. Without touching any settings, every phone in the camp buzzes with notifications — one internet connection, shared instantly with everyone.</p>
+    <h3 data-lang="en">Off-grid camping</h3>
+    <h3 data-lang="ru">Кемпинг вне сети</h3>
+    <p data-lang="en">A group is camping deep in the forest, far from any signal. Someone plugs two small routers into power banks. Within seconds, an invisible local network forms across the camp — no accounts, no passwords, no setup. Everyone connects to Wi-Fi and can share photos, send messages, and see the camp map. Later, a car arrives with a portable satellite dish connected to just one of the routers. Without touching any settings, every phone in the camp buzzes with notifications — one internet connection, shared instantly with everyone.</p>
+    <p data-lang="ru">Группа разбила лагерь глубоко в лесу, вдали от любых сигналов связи. Кто-то подключает два небольших роутера к повербанкам. В течение нескольких секунд по всему лагерю образуется невидимая локальная сеть — никаких аккаунтов, никаких паролей, никаких настроек. Все подключаются к Wi-Fi и могут делиться фотографиями, отправлять сообщения и смотреть карту лагеря. Позже приезжает машина с портативной спутниковой тарелкой, подключенной только к одному из роутеров. Без изменения каких-либо настроек каждый телефон в лагере начинает жужжать от уведомлений — одно интернет-соединение мгновенно раздается всем.</p>
 
-    <h2 id="how-it-works">How it works</h2>
-    <p>Flash the YggMesh firmware onto a supported travel router to turn it into a mesh node.</p>
-    <p>Once powered on, each node silently scans for nearby peers over a hidden wireless channel and forms direct, encrypted connections. We use <a href="https://yggdrasil-network.github.io" target="_blank" rel="noopener">Yggdrasil</a>'s powerful routing protocol to find the fastest path for data across all connected nodes.</p>
-    <p>To the end user, it looks like a regular open WiFi network. When you connect your phone or laptop to any YggMesh router, your device is securely merged into the entire local mesh. You can communicate or share files with anyone else connected to the mesh network, even if they are several hops (routers) away.</p>
-    <p>If a router is plugged into a live internet uplink, it can optionally be configured as a gateway to bring the local offline mesh into the global Yggdrasil network and the wider internet (clearnet).</p>
-    <p>No configuration files needed for the local mesh. No pairing steps. No central server.</p>
+    <div id="how-it-works">
+        <h2 data-lang="en">How it works</h2>
+        <h2 data-lang="ru">Как это работает</h2>
+    </div>
+    <p data-lang="en">Flash the YggMesh firmware onto a supported travel router to turn it into a mesh node.</p>
+    <p data-lang="ru">Прошейте совместимый портативный роутер прошивкой YggMesh, чтобы превратить его в узел mesh-сети.</p>
 
-    <h2 id="contact">Contact</h2>
+    <p data-lang="en">Once powered on, each node silently scans for nearby peers over a hidden wireless channel and forms direct, encrypted connections. We use <a href="https://yggdrasil-network.github.io" target="_blank" rel="noopener">Yggdrasil</a>'s powerful routing protocol to find the fastest path for data across all connected nodes.</p>
+    <p data-lang="ru">После включения питания каждый узел незаметно сканирует скрытый беспроводной канал на наличие соседей и устанавливает прямые, зашифрованные соединения. Мы используем мощный протокол маршрутизации <a href="https://yggdrasil-network.github.io" target="_blank" rel="noopener">Yggdrasil</a>, чтобы находить самый быстрый путь для данных через все подключенные узлы.</p>
 
-    <p><strong>Want to help build resilient off-grid communication?</strong> You can join at any level:</p>
-    <ul>
+    <p data-lang="en">To the end user, it looks like a regular open WiFi network. When you connect your phone or laptop to any YggMesh router, your device is securely merged into the entire local mesh. You can communicate or share files with anyone else connected to the mesh network, even if they are several hops (routers) away.</p>
+    <p data-lang="ru">Для конечного пользователя это выглядит как обычная открытая сеть WiFi. Когда вы подключаете свой телефон или ноутбук к любому роутеру YggMesh, ваше устройство безопасно интегрируется во всю локальную mesh-сеть. Вы можете общаться или обмениваться файлами с любым, кто подключен к сети, даже если они находятся в нескольких прыжках (роутерах) от вас.</p>
+
+    <p data-lang="en">If a router is plugged into a live internet uplink, it can optionally be configured as a gateway to bring the local offline mesh into the global Yggdrasil network and the wider internet (clearnet).</p>
+    <p data-lang="ru">Если роутер подключен к работающему каналу интернета, его можно дополнительно настроить в качестве шлюза, чтобы вывести локальную автономную сеть в глобальную сеть Yggdrasil и более широкий интернет (клирнет).</p>
+
+    <p data-lang="en">No configuration files needed for the local mesh. No pairing steps. No central server.</p>
+    <p data-lang="ru">Для локальной mesh-сети не нужны файлы конфигурации. Никаких процессов сопряжения. Никакого центрального сервера.</p>
+
+    <div id="contact">
+        <h2 data-lang="en">Contact</h2>
+        <h2 data-lang="ru">Контакты</h2>
+    </div>
+
+    <p data-lang="en"><strong>Want to help build resilient off-grid communication?</strong> You can join at any level:</p>
+    <p data-lang="ru"><strong>Хотите помочь в создании надежной автономной связи?</strong> Вы можете присоединиться на любом уровне:</p>
+    
+    <ul data-lang="en">
         <li>Run YggMesh on your own router and share field feedback from real-world conditions.</li>
         <li>Sponsor by purchasing a physical YggMesh router.</li>
         <li>Contribute code, documentation, test cases, or hardware compatibility notes.</li>
         <li>Help expand pilot networks, improve reliability, and back future releases.</li>
     </ul>
-    <p><strong>Reach out at <a href="mailto:yggmesh@asriyan.me">yggmesh@asriyan.me</a> or visit <a href="https://asriyan.me" target="_blank" rel="noopener">asriyan.me</a> for other contact options.</strong></p>
+    <ul data-lang="ru">
+        <li>Запустите YggMesh на своем роутере и поделитесь отзывами из реальных условий.</li>
+        <li>Поддержите нас, купив физический роутер YggMesh.</li>
+        <li>Вносите код, документацию, тесты или информацию о совместимости оборудования.</li>
+        <li>Помогайте расширять пилотные сети, улучшать надежность и поддерживать будущие релизы.</li>
+    </ul>
+
+    <p data-lang="en"><strong>Reach out at <a href="mailto:yggmesh@asriyan.me">yggmesh@asriyan.me</a> or visit <a href="https://asriyan.me" target="_blank" rel="noopener">asriyan.me</a> for other contact options.</strong></p>
+    <p data-lang="ru"><strong>Свяжитесь с нами по адресу <a href="mailto:yggmesh@asriyan.me">yggmesh@asriyan.me</a> или посетите <a href="https://asriyan.me" target="_blank" rel="noopener">asriyan.me</a> для других вариантов связи.</strong></p>
 
 </body>
 </html>
