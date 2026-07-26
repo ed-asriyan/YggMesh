@@ -54,7 +54,17 @@ build_rootfs() {
     local tmpfiles
     tmpfiles=$(prepare_files_dir "docker_x86_64" "eth0:wan")
 
-    local packages="${COMMON_PACKAGES[*]} ${PACKAGES_EXTRA:-}"
+    # The "generic" x86/64 profile has no onboard Wi-Fi, so unlike real router
+    # profiles (which bundle wpad/iw/wifi-scripts as part of their default
+    # package set), it ships with no wireless userspace tools at all. Without
+    # these, /sbin/wifi, /usr/sbin/iw and hostapd/wpa_supplicant don't exist,
+    # so 802.11s mesh (mode=mesh, encryption=sae) never comes up over
+    # mac80211_hwsim and Yggdrasil never gets any mesh peers.
+    # wpad-mesh-wolfssl is used instead of the full wpad/wpad-openssl (which
+    # targets 802.1x/RADIUS auth) because it's the minimal wpad variant that
+    # explicitly supports 802.11s mesh + SAE (WPA3-Personal), matching our
+    # exact wireless.mesh_2g configuration.
+    local packages="${COMMON_PACKAGES[*]} iw wpad-mesh-wolfssl wifi-scripts ${PACKAGES_EXTRA:-}"
 
     echo "Building rootfs for profile: generic"
     echo "Packages: ${packages}"
