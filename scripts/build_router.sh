@@ -113,7 +113,7 @@ build_firmware() {
     packages="${COMMON_PACKAGES[*]} ${PACKAGES_EXTRA:-}"
 
     if [ -n "${SOCKS_PROXY_TARGET:-}" ]; then
-        packages+=" redsocks iptables-mod-nat-extra ip6tables-mod-nat"
+        packages+=" iptables-mod-nat-extra ip6tables-mod-nat"
     fi
 
     # Create temp FILES dir with version/profile and inputs

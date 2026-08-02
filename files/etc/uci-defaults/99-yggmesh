@@ -536,9 +536,9 @@ base {
     redirector = iptables;
 }
 redsocks {
-    local_ip = 0.0.0.0;
+    local_ip = "::";
     local_port = 12345;
-    ip = $host;
+    ip = "${host}";
     port = $port;
     type = socks5;
 }
