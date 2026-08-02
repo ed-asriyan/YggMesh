@@ -69,6 +69,7 @@ Fork this repository, then go to **Actions → Build Firmware → Run workflow**
 | `private_ssid` | Client AP SSID shown to end-user devices. |
 | `yggdrasil_dns` | Space-separated DNS resolver IPv6 addresses reachable over Yggdrasil. Leave empty to skip overlay DNS. |
 | `yggdrasil_peers` | Space-separated Yggdrasil peer URIs for reaching the global network. Leave empty to rely on local multicast discovery only. Find a list of public peers [here](https://publicpeers.neilalexander.dev). It is recommended to add just a few addresses geographically close to you. |
+| `socks_proxy_target` | Optional SOCKS5 transparent proxy target to route all clearnet TCP traffic through (e.g. `proxy.ygg:1080` or `proxy.ygg`). |
 
 To trigger a release build for all devices at once, push a git tag (e.g. `v1.0.0`). Firmware for all supported devices will be built and attached to a GitHub Release automatically.
 
@@ -89,6 +90,7 @@ PRIVATE_SSID="YggMesh" \
 DEFAULT_ROOT_PASSWORD="yggmesh" \
 YGGDRASIL_DNS="324:71e:281a:9ed3::53 302:db60::53 202:1d4e:724e:de52:8273:e2b5:4988:a9ba" \
 YGGDRASIL_PEERS="tls://example.com:443" \
+SOCKS_PROXY_TARGET="proxy.alfis" \
 ./scripts/build_router.sh axt1800
 ```
 
@@ -103,6 +105,7 @@ The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target)
 | `DEFAULT_ROOT_PASSWORD` | Initial root password set on first boot. **Always change on first boot.** |
 | `YGGDRASIL_DNS` | Space-separated DNS resolver IPv6 addresses reachable over Yggdrasil. Can be empty to skip overlay DNS. |
 | `YGGDRASIL_PEERS` | Space-separated Yggdrasil peer URIs for reaching the global network. Can be empty to rely on local multicast discovery only. |
+| `SOCKS_PROXY_TARGET` | Optional SOCKS5 transparent proxy target in format `host` or `host:port` (e.g., `proxy.ygg` or `proxy.ygg:1081`). Defaults to port 1080 if not specified. If provided during the build, the router includes `redsocks` and automatically routes all IPv4 and non-Yggdrasil IPv6 TCP traffic through this SOCKS5 proxy. If omitted, the transparent proxy components are not installed, keeping the firmware lean and the feature disabled by default. |
 
 ## Verification
 To verify the mesh is working correctly, set up a 3-node linear test (A → B → C).

@@ -26,6 +26,10 @@ on:
         required: false
         default: YggMesh
         type: string
+      socks_proxy_target:
+        description: SOCKS5 transparent proxy target
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
       device:
@@ -60,6 +64,10 @@ on:
         required: false
         default: YggMesh
         type: string
+      socks_proxy_target:
+        description: Optional SOCKS5 transparent proxy target (e.g. proxy.alfis:1080)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -84,6 +92,7 @@ jobs:
           DEFAULT_ROOT_PASSWORD: ${{ inputs.default_root_password }}
           YGGDRASIL_PEERS: ${{ inputs.yggdrasil_peers }}
           PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
+          SOCKS_PROXY_TARGET: ${{ inputs.socks_proxy_target }}
           MESH_ID: "yggmesh/mesh"
           MESH_KEY: "qJ7tN2vL8pR4xKcM"
           YGG_PORT: "17000"

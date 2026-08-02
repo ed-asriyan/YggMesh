@@ -112,6 +112,12 @@ build_firmware() {
     local packages
     packages="${COMMON_PACKAGES[*]} ${PACKAGES_EXTRA:-}"
 
+    if [ -n "${SOCKS_PROXY_TARGET:-}" ]; then
+        packages+=" redsocks iptables-mod-nat-extra ip6tables-mod-nat"
+        mkdir -p "${PROJECT_DIR}/files/etc/"
+        echo "$SOCKS_PROXY_TARGET" > "${PROJECT_DIR}/files/etc/ygg_socks_target"
+    fi
+
     # Create temp FILES dir with version/profile and inputs
     local tmpfiles
     tmpfiles=$(prepare_files_dir "$PROFILE" "$PORT_MAP")
