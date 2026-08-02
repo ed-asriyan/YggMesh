@@ -58,6 +58,9 @@ Technically, it combines these layers:
 ## Backlog
 You can find the next items planned to add to YggMesh [here](https://github.com/users/ed-asriyan/projects/1/views/1).
 
+## Experiments
+You can find various tests, field notes, and experiment data in the [`experiments/`](./experiments) folder.
+
 ## Building
 ### Option A: GitHub Actions (recommended for forks)
 Fork this repository, then go to **Actions → Build Firmware → Run workflow**. Fill in the inputs and run. The firmware artifact will be available for download when the job completes.
