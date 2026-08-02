@@ -527,6 +527,24 @@ if [ -f /etc/ygg_socks_target ]; then
         port="${target##*:}"
     fi
 
+    # 1. Создаем IPv4 -> IPv6 мост через socat, так как redsocks не поддерживает IPv6-апстримы
+    cat > /etc/init.d/ygg-proxy-bridge <<EOF
+#!/bin/sh /etc/rc.common
+USE_PROCD=1
+START=99
+
+start_service() {
+    procd_open_instance
+    procd_set_param command /usr/bin/socat TCP4-LISTEN:10800,bind=127.0.0.1,fork,reuseaddr TCP6:[\${host}]:\${port}
+    procd_set_param respawn
+    procd_close_instance
+}
+EOF
+    chmod +x /etc/init.d/ygg-proxy-bridge
+    /etc/init.d/ygg-proxy-bridge enable
+    /etc/init.d/ygg-proxy-bridge start
+
+    # 2. Настраиваем redsocks на работу через локальный мост
     cat > /etc/redsocks.conf <<EOF
 base {
     log_debug = off;
@@ -536,10 +554,10 @@ base {
     redirector = iptables;
 }
 redsocks {
-    local_ip = "::";
+    local_ip = 0.0.0.0;
     local_port = 12345;
-    ip = "${host}";
-    port = $port;
+    ip = 127.0.0.1;
+    port = 10800;
     type = socks5;
 }
 EOF
@@ -547,6 +565,7 @@ EOF
     /etc/init.d/redsocks enable
     /etc/init.d/redsocks start
 
+    # 3. Правила перехвата трафика
     cat > /etc/firewall.proxy <<EOF
 #!/bin/sh
 
@@ -560,7 +579,7 @@ iptables -t nat -A REDSOCKS -d 192.168.0.0/16 -j RETURN
 iptables -t nat -A REDSOCKS -p tcp -j REDIRECT --to-ports 12345
 iptables -t nat -I PREROUTING -i br-private -p tcp -j REDSOCKS
 
-# IPv6
+# IPv6 (перехват с мгновенным отбоем для fallback на IPv4)
 ip6tables -t nat -N REDSOCKS 2>/dev/null || ip6tables -t nat -F REDSOCKS
 ip6tables -t nat -A REDSOCKS -d ::1/128 -j RETURN
 ip6tables -t nat -A REDSOCKS -d fe80::/10 -j RETURN
@@ -576,9 +595,6 @@ EOF
     uci set firewall.@include[-1].reload='1'
     uci commit firewall
 
-    # Restarting firewall is not strictly required here since this script runs on boot and firewall will start,
-    # but we can leave it or omit it. The firewall is started after uci-defaults usually.
-    # We will remove the /etc/ygg_socks_target
     rm -f /etc/ygg_socks_target
 fi
 
