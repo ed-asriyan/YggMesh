@@ -58,7 +58,6 @@ validate_inputs() {
     : "${DEFAULT_ROOT_PASSWORD:?DEFAULT_ROOT_PASSWORD must not be empty}"
     : "${PRIVATE_SSID:?PRIVATE_SSID must not be empty}"
     : "${MESH_ID:?MESH_ID must not be empty}"
-    : "${MESH_KEY:?MESH_KEY must not be empty}"
     : "${YGG_PORT:?YGG_PORT must not be empty}"
     : "${YGGDRASIL_DNS?YGGDRASIL_DNS must be set (can be empty)}"
     : "${YGGDRASIL_PEERS?YGGDRASIL_PEERS must be set (can be empty)}"
@@ -66,12 +65,6 @@ validate_inputs() {
     # Validate that YGG_PORT is a valid port number
     if ! [[ "$YGG_PORT" =~ ^[0-9]+$ ]] || [ "$YGG_PORT" -lt 1 ] || [ "$YGG_PORT" -gt 65535 ]; then
         echo "Error: Invalid port in YGG_PORT: '$YGG_PORT'. Must be 1-65535." >&2
-        exit 1
-    fi
-
-    # Validate that MESH_KEY is at least 8 characters (SAE requirement)
-    if [ "${#MESH_KEY}" -lt 8 ]; then
-        echo "Error: MESH_KEY must be at least 8 characters long (WPA3-SAE requirement)." >&2
         exit 1
     fi
 
@@ -105,7 +98,6 @@ prepare_files_dir() {
     echo "$YGGDRASIL_PEERS" > "$tmpfiles/etc/yggmesh/inputs/yggdrasil_peers"
     echo "$PRIVATE_SSID" > "$tmpfiles/etc/yggmesh/inputs/private_ssid"
     echo "$MESH_ID" > "$tmpfiles/etc/yggmesh/inputs/mesh_id"
-    echo "$MESH_KEY" > "$tmpfiles/etc/yggmesh/inputs/mesh_key"
     echo "$YGG_PORT" > "$tmpfiles/etc/yggmesh/inputs/ygg_port"
 
     echo "$tmpfiles"

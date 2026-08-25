@@ -85,7 +85,6 @@ jobs:
           YGGDRASIL_PEERS: ${{ inputs.yggdrasil_peers }}
           PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
           MESH_ID: "yggmesh/mesh"
-          MESH_KEY: "qJ7tN2vL8pR4xKcM"
           YGG_PORT: "17000"
         run: |
           chmod +x scripts/build_router.sh

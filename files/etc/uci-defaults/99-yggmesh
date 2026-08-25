@@ -26,9 +26,6 @@ PRIVATE_SSID=$(cat /etc/yggmesh/inputs/private_ssid)
 # 802.11s mesh identifier
 MESH_ID=$(cat /etc/yggmesh/inputs/mesh_id)
 
-# SAE key for 802.11s mesh peering
-MESH_KEY=$(cat /etc/yggmesh/inputs/mesh_key)
-
 # Yggdrasil fixed peering port
 YGG_PORT=$(cat /etc/yggmesh/inputs/ygg_port)
 
@@ -225,8 +222,7 @@ set wireless.mesh_2g.device='${RADIO_2G}'
 set wireless.mesh_2g.mode='mesh'
 set wireless.mesh_2g.mesh_id='${MESH_ID}'
 set wireless.mesh_2g.mesh_fwding='0'
-set wireless.mesh_2g.encryption='sae'
-set wireless.mesh_2g.key='${MESH_KEY}'
+set wireless.mesh_2g.encryption='none'
 set wireless.mesh_2g.network='mesh'
 WIFI_2G_MESH
 

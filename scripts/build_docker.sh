@@ -11,7 +11,6 @@
 #   YGGDRASIL_PEERS        Space-separated list of Yggdrasil peer URIs (can be empty)
 #   PRIVATE_SSID           Client AP SSID for end-user devices
 #   MESH_ID                802.11s mesh identifier
-#   MESH_KEY               SAE key for mesh peering
 #   YGG_PORT               Yggdrasil fixed peering port
 
 set -euo pipefail
@@ -42,7 +41,6 @@ usage() {
     echo "  YGGDRASIL_PEERS        Space-separated Yggdrasil peer URIs (can be empty)"
     echo "  PRIVATE_SSID           Client AP SSID"
     echo "  MESH_ID                802.11s mesh identifier"
-    echo "  MESH_KEY               SAE key for mesh peering"
     echo "  YGG_PORT               Yggdrasil fixed peering port"
     exit 1
 }

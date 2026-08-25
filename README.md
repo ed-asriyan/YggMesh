@@ -16,7 +16,7 @@ This project builds a mesh network for cases where normal network infrastructure
 ![Diagram](./diagram.drawio.svg)
 
 Technically, it combines these layers:
-- **[802.11s WiFi mesh](https://en.wikipedia.org/wiki/IEEE_802.11s)** — routers form a wireless backhaul using the 802.11s protocol with SAE encryption. No L2 routing daemon is involved — the 802.11s interfaces are used directly as the transport for Yggdrasil.
+- **[802.11s WiFi mesh](https://en.wikipedia.org/wiki/IEEE_802.11s)** — routers form a wireless backhaul using the 802.11s protocol. No L2 routing daemon is involved — the 802.11s interfaces are used directly as the transport for Yggdrasil.
 - **[Yggdrasil](https://yggdrasil-network.github.io)** — an end-to-end encrypted L3 overlay network that runs directly on the 802.11s interfaces. Every node gets a permanent `200::/7` IPv6 address derived from its public key. Nodes discover each other via multicast on the mesh interfaces — no static configuration, no central registry, no internet required.
 - **WiFi hotspot** — each node creates a public, open WiFi access point (`YggMesh`) with 802.11r/k/v seamless roaming. Connected clients receive a `200::/7` Yggdrasil IPv6 address via SLAAC.
 
@@ -50,7 +50,7 @@ Technically, it combines these layers:
 > All nodes ship with the password `yggmesh`. Change it via LuCI → System → Administration or by running `passwd` over SSH.
 
 **What each node does after first boot:**
-- Brings up 802.11s mesh interfaces on all available radios and joins the shared mesh with SAE encryption.
+- Brings up 802.11s mesh interfaces on all available radios and joins the shared mesh.
 - Runs Yggdrasil directly on the 802.11s interfaces, discovering peers via multicast. No static peers or internet connection needed.
 - Advertises a `300::/64` Yggdrasil subnet on `br-private` so clients receive a `200::/7` IPv6 address via SLAAC.
 - Creates an open public WiFi hotspot (`YggMesh`) across all nodes.
@@ -75,7 +75,7 @@ Fork this repository, then go to **Actions → Build Firmware → Run workflow**
 
 To trigger a release build for all devices at once, push a git tag (e.g. `v1.0.0`). Firmware for all supported devices will be built and attached to a GitHub Release automatically.
 
-**If you edit the code:** `MESH_ID`, `MESH_KEY`, and `YGG_PORT` are hardcoded in the workflow and not exposed as inputs — all nodes built from the same fork share the same mesh credentials and can peer with each other. It is recommended to keep them at their default values so all forks can peer with one another.
+**If you edit the code:** `MESH_ID` and `YGG_PORT` are hardcoded in the workflow and not exposed as inputs — all nodes built from the same fork share the same mesh network and can peer with each other. It is recommended to keep them at their default values so all forks can peer with one another.
 
 ### Option B: Local build
 Requires either:
@@ -86,7 +86,6 @@ All variables below are required. The script will fail immediately if any are mi
 
 ```bash
 MESH_ID="yggmesh/mesh" \
-MESH_KEY="qJ7tN2vL8pR4xKcM" \
 YGG_PORT="17000" \
 PRIVATE_SSID="YggMesh" \
 DEFAULT_ROOT_PASSWORD="yggmesh" \
@@ -100,7 +99,6 @@ The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target)
 | Variable | Description |
 |----------|-------------|
 | `MESH_ID` | 802.11s mesh network identifier. Must match across all nodes. **Recommended: `yggmesh/mesh`** — use this to peer with other YggMesh deployments/forks; change only to create a fully isolated mesh. |
-| `MESH_KEY` | SAE key for 802.11s mesh peering. Must match across all nodes. Not a cryptographic secret — baked into the firmware image. **Recommended: `qJ7tN2vL8pR4xKcM`** — use this to peer with other YggMesh deployments/forks; change only to create a fully isolated mesh. |
 | `YGG_PORT` | Yggdrasil fixed peering port. **Recommended: `17000`** — use this to peer with other YggMesh deployments/forks; change only to create a fully isolated mesh. |
 | `PRIVATE_SSID` | Client AP SSID shown to end-user devices. |
 | `DEFAULT_ROOT_PASSWORD` | Initial root password set on first boot. **Always change on first boot.** |
