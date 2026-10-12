@@ -89,7 +89,7 @@ MESH_ID="yggmesh/mesh" \
 YGG_PORT="17000" \
 PRIVATE_SSID="YggMesh" \
 DEFAULT_ROOT_PASSWORD="yggmesh" \
-YGGDRASIL_DNS="324:71e:281a:9ed3::53 302:db60::53 202:1d4e:724e:de52:8273:e2b5:4988:a9ba" \
+YGGDRASIL_DNS="308:c8:48:45:: 300:7c75:d590:c5d8::100" \
 YGGDRASIL_PEERS="tls://example.com:443" \
 ./scripts/build_router.sh axt1800
 ```

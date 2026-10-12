@@ -374,9 +374,10 @@ DHCP_EOF
 
 # Reset server list before populating (prevents duplicates on firmware upgrade)
 uci -q delete dhcp.@dnsmasq[0].server
-# Yggdrasil DNS resolvers, prepended only when baked in at build time
+# .ygg goes only to the Yggdrasil DNS resolvers (when baked in at build time):
+# public resolvers would answer NXDOMAIN first. Everything else uses public DNS.
 for yggdrasil_dns in $YGGDRASIL_DNS; do
-    uci add_list dhcp.@dnsmasq[0].server="$yggdrasil_dns"
+    uci add_list dhcp.@dnsmasq[0].server="/ygg/${yggdrasil_dns}"
 done
 uci add_list dhcp.@dnsmasq[0].server='1.1.1.1'
 uci add_list dhcp.@dnsmasq[0].server='8.8.8.8'
