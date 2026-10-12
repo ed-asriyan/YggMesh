@@ -52,6 +52,7 @@ Technically, it combines these layers:
 **What each node does after first boot:**
 - Brings up 802.11s mesh interfaces on all available radios and joins the shared mesh.
 - Runs Yggdrasil directly on the 802.11s interfaces, discovering peers via multicast. No static peers or internet connection needed.
+- If it has internet on WAN, picks public global Yggdrasil peers by itself (see [Clearnet Access](#1-connect-yggmesh-to-the-global-yggdrasil-network)).
 - Advertises a `300::/64` Yggdrasil subnet on `br-private` so clients receive a `200::/7` IPv6 address via SLAAC.
 - Creates an open public WiFi hotspot (`YggMesh`) across all nodes.
 
@@ -71,7 +72,9 @@ Fork this repository, then go to **Actions → Build Firmware → Run workflow**
 | `default_root_password` | Initial root password set on first boot. **Always change from the default and on the first boot.** |
 | `private_ssid` | Client AP SSID shown to end-user devices. |
 | `yggdrasil_dns` | Space-separated DNS resolver IPv6 addresses reachable over Yggdrasil. Leave empty to skip overlay DNS. |
-| `yggdrasil_peers` | Space-separated Yggdrasil peer URIs for reaching the global network. Leave empty to rely on local multicast discovery only. Find a list of public peers [here](https://publicpeers.neilalexander.dev). It is recommended to add just a few addresses geographically close to you. |
+| `yggpeers_instances` | Space-separated base URLs of [yggpeers instances](https://gitfield.org/fsky/yggpeers) used to auto-discover public Yggdrasil peers. A peer is used only if a majority of the reachable instances report it as up. Leave empty to disable public peers discovery and rely only on multicast discovery. |
+| `yggpeers_count` | Target number (1-10, default `3`) of global Yggdrasil peers per node with internet on WAN. Peers configured manually count towards this number. |
+| `yggpeers_check_interval` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380, default `30`). Peers that are down are replaced at the next check. |
 
 To trigger a release build for all devices at once, push a git tag (e.g. `v1.0.0`). Firmware for all supported devices will be built and attached to a GitHub Release automatically.
 
@@ -90,7 +93,9 @@ YGG_PORT="17000" \
 PRIVATE_SSID="YggMesh" \
 DEFAULT_ROOT_PASSWORD="yggmesh" \
 YGGDRASIL_DNS="308:c8:48:45:: 300:7c75:d590:c5d8::100" \
-YGGDRASIL_PEERS="tls://example.com:443" \
+YGGPEERS_INSTANCES="https://yggpeers.fsky.io" \
+YGGPEERS_COUNT="3" \
+YGGPEERS_CHECK_INTERVAL="30" \
 ./scripts/build_router.sh axt1800
 ```
 
@@ -103,7 +108,9 @@ The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target)
 | `PRIVATE_SSID` | Client AP SSID shown to end-user devices. |
 | `DEFAULT_ROOT_PASSWORD` | Initial root password set on first boot. **Always change on first boot.** |
 | `YGGDRASIL_DNS` | Space-separated DNS resolver IPv6 addresses reachable over Yggdrasil. Can be empty to skip overlay DNS. |
-| `YGGDRASIL_PEERS` | Space-separated Yggdrasil peer URIs for reaching the global network. Can be empty to rely on local multicast discovery only. |
+| `YGGPEERS_INSTANCES` | Space-separated base URLs of [yggpeers](https://gitfield.org/fsky/yggpeers) instances used to auto-discover public peers. Can be empty to disable auto-discovery. |
+| `YGGPEERS_COUNT` | Target number (1-10) of global Yggdrasil peers per node with internet on WAN. Manually configured peers count towards this number. |
+| `YGGPEERS_CHECK_INTERVAL` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380). |
 
 ## Verification
 To verify the mesh is working correctly, set up a 3-node linear test (A → B → C).
@@ -139,16 +146,15 @@ To have access to clearnet, YggMesh node should have configured IP addresses or 
 Both are not distributed within YggMesh firmware (nothing is hardcoded). After the first boot, it's recommended to setup both.
 
 ### 1. Connect YggMesh to the global Yggdrasil network
-First, you need to connect your local YggMesh to the global Yggdrasil network so it can reach external nodes.
+Your YggMesh needs a path to the global Yggdrasil network. Any **one** of these is enough:
 
-1. Connect any of the YggMesh devices to the internet (e.g., plug an Ethernet cable into the WAN port).
-2. Connect to the **YggMesh** WiFi on your phone or laptop and open `http://10.0.0.1/cgi-bin/luci/admin/network/network` in your browser. Authorize if required (the default password is `yggmesh`).
-3. Next to the **yggdrasil** interface, click **Edit**.
-4. Open the **Peers** tab.
-5. Under **Peer addresses**, click **Add peer address**. Insert a **Peer URI** and leave the **Peer interface** field empty. *(You can find a list of public peers [here](https://publicpeers.neilalexander.dev/). It is recommended to add just a few addresses geographically close to you).*
-6. Click **Save**, then click **Save & Apply**.
-7. Next to the **yggdrasil** interface, click **Edit** again.
-8. Ensure that you see your added peers under **Active peers** and that their status is **Up**. If their status is **Down**, your YggMesh device does not have clearnet access or the peer is unreachable. Try changing the peer URI and apply again.
+1. **Internet on WAN.** Plug a cable with clearnet access into the WAN port. It finds public peers by itself.
+2. **Wire it to another YggMesh device** that is already connected to the global Yggdrasil network (either works: LAN to LAN, WAN to WAN, LAN to WAN, or WAN to LAN).
+3. **Put it near another YggMesh device**, so that they discover each other over the mesh Wi-Fi.
+
+In cases 2 and 3 the neighbour does not need clearnet itself, only a path to the global Yggdrasil network: directly, or through other YggMesh nodes, any number of hops.
+
+A node with internet on WAN picks peers like this: it asks the [yggpeers](https://gitfield.org/fsky/yggpeers) instances set at build time, keeps peers reported up by a majority of them, ranks them by ping and uses the best `yggpeers_count` (manually added peers count too). It re-checks every `yggpeers_check_interval` minutes and re-ranks once a week.
 
 Now the entire local YggMesh network is a part of the global Yggdrasil network.
 

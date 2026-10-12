@@ -8,10 +8,12 @@
 # Required build-time inputs (env vars).
 #   YGGDRASIL_DNS          Space-separated DNS resolver addresses reachable over Yggdrasil (can be empty)
 #   DEFAULT_ROOT_PASSWORD  Initial root password set on first boot
-#   YGGDRASIL_PEERS        Space-separated list of Yggdrasil peer URIs (can be empty)
 #   PRIVATE_SSID           Client AP SSID for end-user devices
 #   MESH_ID                802.11s mesh identifier
 #   YGG_PORT               Yggdrasil fixed peering port
+#   YGGPEERS_INSTANCES     Space-separated yggpeers base URLs for global peer auto-discovery (can be empty to disable)
+#   YGGPEERS_COUNT         Target number of global peers per node with internet on WAN (1-10)
+#   YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380
 
 set -euo pipefail
 
@@ -96,10 +98,12 @@ usage() {
     echo "  PACKAGES_EXTRA         Additional packages (optional, space-separated)"
     echo "  YGGDRASIL_DNS          Space-separated DNS resolver addresses reachable over Yggdrasil (can be empty)"
     echo "  DEFAULT_ROOT_PASSWORD  Initial root password"
-    echo "  YGGDRASIL_PEERS        Space-separated Yggdrasil peer URIs (can be empty)"
     echo "  PRIVATE_SSID           Client AP SSID"
     echo "  MESH_ID                802.11s mesh identifier"
     echo "  YGG_PORT               Yggdrasil fixed peering port"
+    echo "  YGGPEERS_INSTANCES     Space-separated yggpeers base URLs for peer auto-discovery (can be empty to disable)"
+    echo "  YGGPEERS_COUNT         Target number of global peers per node (1-10)"
+    echo "  YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380"
     exit 1
 }
 

@@ -17,9 +17,20 @@ on:
         required: true
         default: yggmesh
         type: string
-      yggdrasil_peers:
-        description: Space-separated Yggdrasil peer URIs
+      yggpeers_instances:
+        description: Space-separated base URLs of yggpeers instances (https://gitfield.org/fsky/yggpeers) used to auto-discover public Yggdrasil peers. A peer is used only if a majority of the reachable instances report it as up. Leave empty to disable public peers discovery and rely only on multicast discovery.
         required: false
+        default: "https://yggpeers.fsky.io"
+        type: string
+      yggpeers_count:
+        description: Target number of global Yggdrasil peers per node with internet on WAN. Peers configured manually count towards this number.
+        required: false
+        default: "3"
+        type: string
+      yggpeers_check_interval:
+        description: Minutes between checks of the global peers on a node (1-59, or a multiple of 60 up to 1380). Peers that are down are replaced at the next check.
+        required: false
+        default: "30"
         type: string
       private_ssid:
         description: Client AP SSID for end-user devices
@@ -51,9 +62,20 @@ on:
         required: true
         default: yggmesh
         type: string
-      yggdrasil_peers:
-        description: Space-separated Yggdrasil peer URIs
+      yggpeers_instances:
+        description: Space-separated base URLs of yggpeers instances (https://gitfield.org/fsky/yggpeers) used to auto-discover public Yggdrasil peers. A peer is used only if a majority of the reachable instances report it as up. Leave empty to disable public peers discovery and rely only on multicast discovery.
         required: false
+        default: "https://yggpeers.fsky.io"
+        type: string
+      yggpeers_count:
+        description: Target number of global Yggdrasil peers per node with internet on WAN. Peers configured manually count towards this number.
+        required: false
+        default: "3"
+        type: string
+      yggpeers_check_interval:
+        description: Minutes between checks of the global peers on a node (1-59, or a multiple of 60 up to 1380). Peers that are down are replaced at the next check.
+        required: false
+        default: "30"
         type: string
       private_ssid:
         description: Client AP SSID for end-user devices
@@ -82,7 +104,9 @@ jobs:
         env:
           YGGDRASIL_DNS: ${{ inputs.yggdrasil_dns }}
           DEFAULT_ROOT_PASSWORD: ${{ inputs.default_root_password }}
-          YGGDRASIL_PEERS: ${{ inputs.yggdrasil_peers }}
+          YGGPEERS_INSTANCES: ${{ inputs.yggpeers_instances }}
+          YGGPEERS_COUNT: ${{ inputs.yggpeers_count || '3' }}
+          YGGPEERS_CHECK_INTERVAL: ${{ inputs.yggpeers_check_interval || '30' }}
           PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
           MESH_ID: "yggmesh/mesh"
           YGG_PORT: "17000"

@@ -1,0 +1,497 @@
+#!/bin/sh
+# shellcheck disable=SC3043
+# YggMesh — automatic discovery of public Yggdrasil peers.
+#
+# Any node with internet on WAN picks public global peers by itself. Candidates
+# come from yggpeers instances (yggmesh.discovery.instance), are filtered by
+# majority vote, ranked by ping, and the best N are applied at runtime through
+# the Yggdrasil admin socket. The yggdrasil interface is NEVER restarted or
+# reloaded: that would drop every 802.11s mesh link. Peers are changed through
+# the socket and persisted with `uci commit network` only.
+#
+# Takes no arguments. Started by cron (check_interval), on WAN ifup and on NTP
+# stratum events (see files/etc/hotplug.d). Logs: logread -e yggmesh-fetch-peers
+#
+# Options in /etc/config/yggmesh, section discovery:
+#   instance         list of yggpeers base URLs; empty list disables discovery
+#   count            target total number of global peers (manual peers count too)
+#   check_interval   minutes between runs: 1-59 or a multiple of 60 up to 1380 (default 30;
+#                    the firmware sets it from the YGGPEERS_CHECK_INTERVAL build input)
+#   rerank_interval  days between full re-ranks of the peers, 1-90 (default 7)
+#
+# Algorithm (one run):
+#   1. Take the lock (mkdir is atomic). If another run holds it, exit.
+#   2. Rewrite this script's cron line from check_interval.
+#   3. Read instances and count. No instances (or a bad count): exit.
+#   4. Preconditions: WAN must be up and the clock must be at least the build
+#      time baked into /etc/yggmesh/build_epoch (otherwise HTTPS fails; the NTP
+#      hotplug runs the script again). If not met: exit.
+#   5. static = peers configured by hand (no `interface`, not ygg_auto_peer_*).
+#      target = max(0, count - static).
+#   6. target == 0: remove all auto peers and exit.
+#   7. Decide whether to reselect:
+#        - last selection older than rerank_interval days: reselect, after a
+#          random 0-600 s pause so that deployments do not hit the API together;
+#        - number of auto peers differs from target: reselect;
+#        - otherwise ask the socket which auto peers are up. A peer that is
+#          down is re-checked once after 30 s; if still down it goes to the
+#          blacklist and we reselect. If all are up (or the socket is missing):
+#          exit quietly.
+#   8. Fetch up peers (tls/quic/tcp only) from every instance. R is the number
+#      of instances that returned something. R == 0: log an error, keep the
+#      current peers, exit 1.
+#   9. Keep URIs reported by at least floor(R/2)+1 instances (majority vote).
+#  10. Normalize: one URI per host (tls > quic > tcp), drop IPv6 literals when
+#      there is no IPv6 default route, drop blacklisted URIs unless that leaves
+#      fewer than target candidates.
+#  11. Ping every candidate (3 probes, 16 in parallel), sort by average rtt
+#      (silent hosts are ranked last), take the top target.
+#  12. Apply: removePeer for peers that left and addPeer for new ones through
+#      the socket, then rewrite the ygg_auto_peer_* sections and commit.
+#  13. Log the chosen URIs with their rtt and store the time of this selection.
+#
+# State: /tmp/yggmesh-fetch-peers.bad (blacklist) and .stamp (last selection)
+# are cleared on reboot, which is intended.
+
+SOCK="unix:///tmp/yggdrasil/yggdrasil.sock"
+SOCK_FILE="/tmp/yggdrasil/yggdrasil.sock"
+PROTOS="tls quic tcp"
+AUTO_PREFIX="ygg_auto_peer_"
+BLACKLIST="/tmp/yggmesh-fetch-peers.bad"
+LOCK="/var/lock/yggmesh-fetch-peers.lock"
+STAMP="/tmp/yggmesh-fetch-peers.stamp"
+CRONTAB="/etc/crontabs/root"
+SELF="/usr/sbin/yggmesh-fetch-peers"
+MAX_PARALLEL=16
+TAG="yggmesh-fetch-peers"
+
+WORK=""
+
+# Writes a message to the system log (logread -e yggmesh-fetch-peers)
+log() {
+    logger -t "$TAG" "$*"
+}
+
+# EXIT trap: removes the temp dir and releases the lock
+cleanup() {
+    [ -n "$WORK" ] && rm -rf "$WORK"
+    rmdir "$LOCK" 2>/dev/null
+}
+
+# ----------------------------------------------------------------------------
+# URI helpers
+# ----------------------------------------------------------------------------
+
+# Prints the bare host of a peer URI: scheme, ?query, /path and :port are
+# stripped, IPv6 brackets removed. Pure parameter expansion, no external tools.
+uri_host() {
+    local rest="${1#*://}"
+    rest="${rest%%\?*}"
+    rest="${rest%%/*}"
+    case "$rest" in
+        \[*) rest="${rest#\[}"; echo "${rest%%\]*}" ;;
+        *) echo "${rest%%:*}" ;;
+    esac
+}
+
+# Prints host:port of a peer URI with IPv6 brackets kept. Used to compare a
+# URI with the 'remote' strings reported by the admin socket.
+uri_hostport() {
+    local rest="${1#*://}"
+    rest="${rest%%\?*}"
+    echo "${rest%%/*}"
+}
+
+# Returns 0 if the URI host is an IPv6 literal (it is written in [...])
+uri_is_v6() {
+    case "$(uri_hostport "$1")" in
+        \[*) return 0 ;;
+    esac
+    return 1
+}
+
+# Prints the preference rank of the URI scheme: tls=1, quic=2, tcp=3 (lower wins)
+uri_proto_rank() {
+    case "${1%%://*}" in
+        tls) echo 1 ;;
+        quic) echo 2 ;;
+        tcp) echo 3 ;;
+        *) echo 9 ;;
+    esac
+}
+
+# ----------------------------------------------------------------------------
+# UCI / admin socket
+# ----------------------------------------------------------------------------
+
+# Prints the number of manually configured peers: network sections of type
+# yggdrasil_yggdrasil_peer that have no `interface` option (those are tied to a
+# multicast interface) and are not ours (name does not start with ygg_auto_peer_).
+# awk collects peer sections and sections having `interface`, then counts the difference.
+count_static_peers() {
+    uci -q show network | awk -F'[.=]' -v pfx="$AUTO_PREFIX" '
+        $3 == "yggdrasil_yggdrasil_peer" && index($2, pfx) != 1 { t[$2] = 1 }
+        $3 == "interface" { i[$2] = 1 }
+        END { n = 0; for (s in t) if (!(s in i)) n++; print n }'
+}
+
+# Prints the addresses of the ygg_auto_peer_* sections, one per line
+current_auto_peers() {
+    uci -q show network | sed -n "s/^network\.${AUTO_PREFIX}[0-9]*\.address='\(.*\)'$/\1/p"
+}
+
+# Deletes every ygg_auto_peer_* section from the uncommitted UCI network config
+delete_auto_sections() {
+    local sec
+    for sec in $(uci -q show network | sed -n "s/^network\.\(${AUTO_PREFIX}[0-9]*\)=.*/\1/p"); do
+        uci -q delete "network.$sec"
+    done
+}
+
+# Replaces the auto peers with the URIs read from stdin: deletes the old
+# ygg_auto_peer_* sections, creates ygg_auto_peer_1..N and commits. `uci commit`
+# only writes the file; nothing reloads the network.
+write_auto_sections() {
+    local uri k=1
+    delete_auto_sections
+    while read -r uri; do
+        [ -n "$uri" ] || continue
+        uci set "network.${AUTO_PREFIX}${k}=yggdrasil_yggdrasil_peer"
+        uci set "network.${AUTO_PREFIX}${k}.address=${uri}"
+        k=$((k + 1))
+    done
+    uci commit network
+}
+
+# Runs addPeer or removePeer ($1) for the URI ($2) through the admin socket.
+# The request field is `uri`. Does nothing without the socket; a failure is
+# logged and is not fatal.
+ygg_peer_op() {
+    local op="$1" uri="$2"
+    [ -S "$SOCK_FILE" ] || return 0
+    yggdrasilctl -endpoint="$SOCK" "$op" uri="$uri" >/dev/null 2>&1 \
+        || logger -t "$TAG" "Warning: $op $uri failed"
+}
+
+# Prints the 'remote' value of every connected peer that is up, one per line.
+# This is the only place that knows the layout of the getPeers JSON.
+ygg_up_peers() {
+    yggdrasilctl -json -endpoint="$SOCK" getPeers 2>/dev/null | jsonfilter -e '@.peers[@.up=true].remote'
+}
+
+# Returns 0 if peer URI $1 is among the up peers listed in file $2. Tries an
+# exact match first, then host:port, because the socket may report the remote
+# without the ?query or with a different spelling.
+peer_is_up() {
+    local uri="$1" upfile="$2" hp
+    grep -qxF "$uri" "$upfile" && return 0
+    hp=$(uri_hostport "$uri")
+    # remote strings may be rewritten (query dropped, scheme case), match host:port
+    while read -r remote; do
+        [ "$(uri_hostport "$remote")" = "$hp" ] && return 0
+    done < "$upfile"
+    return 1
+}
+
+# ----------------------------------------------------------------------------
+# Schedule
+# ----------------------------------------------------------------------------
+
+# Prints the UCI option $1 of the discovery section when it is an integer in
+# [$2, $3], otherwise the default $4. Garbage in the config never breaks a run.
+sched_opt() {
+    local val
+    val=$(uci -q get "yggmesh.discovery.$1")
+    case "$val" in
+        ''|*[!0-9]*) echo "$4"; return ;;
+    esac
+    if [ "$val" -ge "$2" ] && [ "$val" -le "$3" ]; then
+        echo "$val"
+    else
+        echo "$4"
+    fi
+}
+
+# Makes this script's line in the crontab match check_interval: */N minutes
+# for N < 60, every N/60 hours for multiples of 60, otherwise 30 minutes.
+# Nothing is written when the line is already right. Other lines are kept.
+# The file is replaced with a rename, not edited in place: busybox crond
+# rescans the directory by mtime, so no cron restart is needed. Runs on every
+# invocation, hence the schedule always follows UCI.
+sync_cron() {
+    local interval spec want tmp="${CRONTAB}.new"
+    interval=$(sched_opt check_interval 1 1380 30)
+
+    if [ "$interval" -lt 60 ]; then
+        spec="*/$interval * * * *"
+    elif [ $((interval % 60)) -eq 0 ]; then
+        spec="0 */$((interval / 60)) * * *"
+    else
+        logger -t "$TAG" "check_interval $interval is not a multiple of 60, using 30"
+        interval=30
+        spec="*/30 * * * *"
+    fi
+    want="$spec $SELF"
+
+    touch "$CRONTAB"
+    [ "$(grep -F "$SELF" "$CRONTAB")" = "$want" ] && return 0
+
+    { grep -vF "$SELF" "$CRONTAB"; echo "$want"; } > "$tmp" && mv "$tmp" "$CRONTAB"
+    logger -t "$TAG" "Schedule updated: every ${interval} min"
+}
+
+# ----------------------------------------------------------------------------
+# Decision
+# ----------------------------------------------------------------------------
+
+# Returns 0 when the last selection is older than rerank_interval days.
+# The time of the last selection is kept in $STAMP. Without a stamp (first run,
+# or after a reboot cleared /tmp) it is created now and nothing is due yet.
+rerank_due() {
+    local last days
+    days=$(sched_opt rerank_interval 1 90 7)
+    last=$(cat "$STAMP" 2>/dev/null)
+    case "$last" in
+        ''|*[!0-9]*) date +%s > "$STAMP"; return 1 ;;
+    esac
+    [ $(($(date +%s) - last)) -ge $((days * 86400)) ]
+}
+
+# Returns 0 if netifd reports the wan interface as up
+wan_is_up() {
+    [ "$(ubus call network.interface.wan status 2>/dev/null | jsonfilter -e '@.up')" = "true" ]
+}
+
+# Returns 0 if the system time is not earlier than the firmware build time.
+# A router without RTC boots with a wrong date, which breaks TLS validation.
+clock_is_sane() {
+    local build_epoch
+    build_epoch=$(cat /etc/yggmesh/build_epoch 2>/dev/null)
+    [ -n "$build_epoch" ] || return 0
+    [ "$(date +%s)" -ge "$build_epoch" ]
+}
+
+# Checks the current auto peers against the admin socket. Returns 1 if all are up.
+# A peer that is not up gets one more chance: we wait 30 s (it may still be
+# connecting) and ask again. Peers still down are appended to the blacklist
+# and the function returns 0, meaning "reselect".
+down_peers_to_blacklist() {
+    local upfile="$WORK/up" uri down
+    ygg_up_peers > "$upfile"
+    down=""
+    for uri in $(current_auto_peers); do
+        peer_is_up "$uri" "$upfile" || down="$down $uri"
+    done
+    [ -n "$down" ] || return 1
+    sleep 30
+    ygg_up_peers > "$upfile"
+    down=""
+    for uri in $(current_auto_peers); do
+        peer_is_up "$uri" "$upfile" || down="$down $uri"
+    done
+    [ -n "$down" ] || return 1
+    for uri in $down; do
+        echo "$uri" >> "$BLACKLIST"
+        log "Peer is down, blacklisted: $uri"
+    done
+    return 0
+}
+
+# ----------------------------------------------------------------------------
+# Candidate selection
+# ----------------------------------------------------------------------------
+
+# Downloads the list of up, non-network peers from every instance into
+# $WORK/inst.N (one URI per line). Only tls, quic and tcp URIs are kept,
+# sorted and unique per instance. Prints R, the number of instances that
+# returned at least one URI. An unreachable instance simply counts as absent.
+fetch_instances() {
+    local base n=0 r=0 uri proto
+    for base in $INSTANCES; do
+        n=$((n + 1))
+        : > "$WORK/inst.$n"
+        curl -fsS --max-time 20 "$base/api/v1/peers?status=up&is_network=false" 2>/dev/null \
+            | jsonfilter -e '@.peers[*].uri' 2>/dev/null \
+            | while read -r uri; do
+                for proto in $PROTOS; do
+                    case "$uri" in "$proto"://*) echo "$uri" ;; esac
+                done
+            done | sort -u > "$WORK/inst.$n"
+        [ -s "$WORK/inst.$n" ] && r=$((r + 1))
+    done
+    echo "$r"
+}
+
+# Majority vote. $1 is R. Prints the URIs present in at least floor(R/2)+1 of
+# the per-instance files: `sort | uniq -c` counts them, awk filters by count.
+majority_uris() {
+    local need=$(($1 / 2 + 1))
+    cat "$WORK"/inst.* | sort | uniq -c | awk -v need="$need" '$1 >= need { print $2 }'
+}
+
+# Reads URIs from stdin, prints one URI per host. When a host offers several
+# protocols the best one wins (tls > quic > tcp): lines are prefixed with the
+# rank, sorted by it, and awk keeps the first line of every host. IPv6 literals
+# are dropped when the router has no IPv6 default route, they are unreachable.
+dedupe_by_host() {
+    local have_v6=0 uri host
+    [ -n "$(ip -6 route show default 2>/dev/null)" ] && have_v6=1
+    while read -r uri; do
+        if uri_is_v6 "$uri" && [ "$have_v6" = "0" ]; then
+            continue
+        fi
+        host=$(uri_host "$uri")
+        echo "$(uri_proto_rank "$uri") $host $uri"
+    done | sort -k1,1n | awk '!seen[$2]++ { print $3 }'
+}
+
+# Prints the lines of file $2 that are not in file $1 (set difference).
+# Not grep -vxFf: busybox grep treats an empty pattern file as matching
+# everything. Not `NR == FNR` either: it misfires when $1 is empty, hence the
+# FILENAME comparison.
+lines_not_in() {
+    awk 'FILENAME == ARGV[1] { seen[$0] = 1; next } !($0 in seen)' "$1" "$2"
+}
+
+# Reads URIs from stdin and removes the blacklisted ones. $1 is the target:
+# when the blacklist would leave fewer candidates than that, it is ignored
+# and the full list is printed, so a node is never left short of peers.
+apply_blacklist() {
+    local target="$1" all="$WORK/all" kept="$WORK/kept"
+    cat > "$all"
+    touch "$BLACKLIST"
+    lines_not_in "$BLACKLIST" "$all" > "$kept"
+    if [ "$(wc -l < "$kept")" -lt "$target" ]; then
+        cat "$all"
+    else
+        cat "$kept"
+    fi
+}
+
+# Pings the host of URI $1 (3 probes, 2 s each; ping -6 for IPv6 literals) and
+# writes "avg_rtt uri" to file $2. busybox prints the average in the
+# `round-trip min/avg/max = a/b/c ms` line. A host that does not answer gets
+# 999999: it stays in the list but is ranked last. Meant to run in the background.
+ping_rtt() {
+    local uri="$1" out="$2" host rtt cmd="ping"
+    host=$(uri_host "$uri")
+    uri_is_v6 "$uri" && cmd="ping -6"
+    rtt=$($cmd -c 3 -W 2 -q "$host" 2>/dev/null | sed -n 's|.*= [0-9.]*/\([0-9.]*\)/.*|\1|p')
+    [ -n "$rtt" ] || rtt=999999
+    echo "$rtt $uri" > "$out"
+}
+
+# Reads URIs from stdin, prints "rtt uri" lines sorted by rtt, best first.
+# Pings run as background jobs, at most MAX_PARALLEL at once: after every full
+# batch we `wait`. Every job writes its own file in $WORK/ping, so jobs do not
+# share output.
+rank_by_ping() {
+    local dir="$WORK/ping" uri n=0 running=0
+    mkdir -p "$dir"
+    while read -r uri; do
+        n=$((n + 1))
+        ping_rtt "$uri" "$dir/$n" &
+        running=$((running + 1))
+        if [ "$running" -ge "$MAX_PARALLEL" ]; then
+            wait
+            running=0
+        fi
+    done
+    wait
+    cat "$dir"/* 2>/dev/null | sort -n
+}
+
+# ----------------------------------------------------------------------------
+# Apply
+# ----------------------------------------------------------------------------
+
+# Switches the running node and the saved config to the URIs in file $1.
+# Diffs the old auto peers against the new ones, calls removePeer for those
+# that left and addPeer for the new ones (existing connections are untouched,
+# the mesh stays up), then persists the set in UCI. The runtime part comes
+# first, so a failed commit cannot leave the node without new peers.
+apply_peers() {
+    local new="$1" old="$WORK/old" uri
+    current_auto_peers | sort -u > "$old"
+    sort -u "$new" > "$new.sorted"
+    for uri in $(lines_not_in "$new.sorted" "$old"); do
+        ygg_peer_op removePeer "$uri"
+    done
+    for uri in $(lines_not_in "$old" "$new.sorted"); do
+        ygg_peer_op addPeer "$uri"
+    done
+    write_auto_sections < "$new"
+}
+
+# ----------------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------------
+
+# One full run, see the algorithm in the header. Every `exit 0` below is a
+# normal "nothing to do" outcome; exit 1 means that discovery failed.
+main() {
+    local count target static r ranked
+
+    sync_cron
+
+    INSTANCES=$(uci -q get yggmesh.discovery.instance)
+    count=$(uci -q get yggmesh.discovery.count)
+    [ -n "$INSTANCES" ] || exit 0
+    case "$count" in ''|*[!0-9]*) exit 0 ;; esac
+
+    wan_is_up || exit 0
+    if ! clock_is_sane; then
+        logger -t "$TAG" "clock not synced yet"
+        exit 0
+    fi
+
+    WORK=$(mktemp -d)
+    static=$(count_static_peers)
+    target=$((count - static))
+    [ "$target" -lt 0 ] && target=0
+
+    if [ "$target" -eq 0 ]; then
+        if [ -n "$(current_auto_peers)" ]; then
+            log "Enough manual peers ($static), removing auto peers"
+            : > "$WORK/none"
+            apply_peers "$WORK/none"
+        fi
+        exit 0
+    fi
+
+    if rerank_due; then
+        # Spread the weekly re-rank so that deployments do not hit the API together
+        sleep $(( $(hexdump -n 2 -e '/2 "%u"' /dev/urandom) % 601 ))
+    elif [ "$(current_auto_peers | wc -l)" -eq "$target" ]; then
+        [ -S "$SOCK_FILE" ] || exit 0
+        down_peers_to_blacklist || exit 0
+    fi
+
+    r=$(fetch_instances)
+    if [ "$r" -eq 0 ]; then
+        log "Error: no yggpeers instance returned peers, keeping current peers"
+        exit 1
+    fi
+
+    majority_uris "$r" | dedupe_by_host | apply_blacklist "$target" > "$WORK/candidates"
+    ranked=$(rank_by_ping < "$WORK/candidates" | head -n "$target")
+    if [ -z "$ranked" ]; then
+        log "Error: no usable candidates, keeping current peers"
+        exit 1
+    fi
+
+    echo "$ranked" | cut -d' ' -f2- > "$WORK/chosen"
+    log "Selected $(echo "$ranked" | wc -l) of $target peers ($static manual), $r instance(s) reachable:"
+    echo "$ranked" | while read -r rtt uri; do
+        log "  $uri rtt=${rtt}ms"
+    done
+
+    apply_peers "$WORK/chosen"
+    date +%s > "$STAMP"
+}
+
+# The lock is atomic; if another run holds it, do nothing
+mkdir "$LOCK" 2>/dev/null || exit 0
+trap cleanup EXIT
+
+main

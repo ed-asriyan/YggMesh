@@ -1,0 +1,5 @@
+#!/bin/sh
+# First boot: HTTPS fails until NTP has synced the clock, so retry on NTP events.
+# Stratum events repeat; the lock and maintain mode keep repeated runs cheap.
+[ "$ACTION" = "stratum" ] || exit 0
+/usr/sbin/yggmesh-fetch-peers >/dev/null 2>&1 &

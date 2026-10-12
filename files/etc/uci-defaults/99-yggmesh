@@ -17,9 +17,6 @@ YGGDRASIL_DNS=$(cat /etc/yggmesh/inputs/yggdrasil_dns)
 # Initial root password set on first boot (user should change via LuCI or passwd)
 DEFAULT_ROOT_PASSWORD=$(cat /etc/yggmesh/inputs/root_password)
 
-# Yggdrasil peers to bake in (space-separated list of peer URIs)
-YGGDRASIL_PEERS=$(cat /etc/yggmesh/inputs/yggdrasil_peers)
-
 # Client AP SSID for end-user devices
 PRIVATE_SSID=$(cat /etc/yggmesh/inputs/private_ssid)
 
@@ -28,6 +25,15 @@ MESH_ID=$(cat /etc/yggmesh/inputs/mesh_id)
 
 # Yggdrasil fixed peering port
 YGG_PORT=$(cat /etc/yggmesh/inputs/ygg_port)
+
+# yggpeers instances for global peer auto-discovery (space-separated base URLs, may be empty)
+YGGPEERS_INSTANCES=$(cat /etc/yggmesh/inputs/yggpeers_instances)
+
+# Target number of global Yggdrasil peers per node with internet on WAN
+YGGPEERS_COUNT=$(cat /etc/yggmesh/inputs/yggpeers_count)
+
+# Minutes between checks of the global peers
+YGGPEERS_CHECK_INTERVAL=$(cat /etc/yggmesh/inputs/yggpeers_check_interval)
 
 # Cleanup sensitive build inputs immediately after reading into memory
 rm -rf /etc/yggmesh/inputs
@@ -428,15 +434,29 @@ set network.ygg_iface.listen='1'
 set network.ygg_iface.port='${YGG_PORT}'
 YGG_EOF
 
-# Bake in Yggdrasil peers (space-separated list) only when provided at build time
-PEER_ID=1
-for ygg_peer in $YGGDRASIL_PEERS; do
-    uci set network.ygg_default_peer_${PEER_ID}=yggdrasil_yggdrasil_peer
-    uci set network.ygg_default_peer_${PEER_ID}.address="$ygg_peer"
-    PEER_ID=$((PEER_ID + 1))
-done
-
 uci commit network
+
+# Global peer auto-discovery settings (read by /usr/sbin/yggmesh-fetch-peers).
+# The section is always created; without any instance entries discovery is disabled.
+touch /etc/config/yggmesh
+uci set yggmesh.discovery=discovery
+uci set yggmesh.discovery.count="${YGGPEERS_COUNT}"
+uci set yggmesh.discovery.check_interval="${YGGPEERS_CHECK_INTERVAL}"
+uci set yggmesh.discovery.rerank_interval='7'
+for yggpeers_instance in $YGGPEERS_INSTANCES; do
+    uci add_list yggmesh.discovery.instance="$yggpeers_instance"
+done
+uci commit yggmesh
+
+# Initial schedule; yggmesh-fetch-peers rewrites it when the options above change
+touch /etc/crontabs/root
+if [ "$YGGPEERS_CHECK_INTERVAL" -lt 60 ]; then
+    cron_line="*/${YGGPEERS_CHECK_INTERVAL} * * * * /usr/sbin/yggmesh-fetch-peers"
+else
+    cron_line="0 */$((YGGPEERS_CHECK_INTERVAL / 60)) * * * /usr/sbin/yggmesh-fetch-peers"
+fi
+grep -qxF "$cron_line" /etc/crontabs/root || echo "$cron_line" >> /etc/crontabs/root
+/etc/init.d/cron enable 2>/dev/null || true
 
 # Yggdrasil firewall zone
 uci batch <<-YGG_FW_EOF

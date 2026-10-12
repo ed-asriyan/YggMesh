@@ -35,7 +35,7 @@ download_builder() {
 # Shared Configuration & Packages
 # ============================================================================
 
-YGGMESH_BUILD="23"
+YGGMESH_BUILD="25"
 FIRMWARE_VERSION="${OPENWRT_VERSION}-ym${YGGMESH_BUILD}"
 
 COMMON_PACKAGES=(
@@ -46,6 +46,7 @@ COMMON_PACKAGES=(
     iperf3
     iwinfo
     curl
+    ca-bundle
 )
 
 # ============================================================================
@@ -60,12 +61,45 @@ validate_inputs() {
     : "${MESH_ID:?MESH_ID must not be empty}"
     : "${YGG_PORT:?YGG_PORT must not be empty}"
     : "${YGGDRASIL_DNS?YGGDRASIL_DNS must be set (can be empty)}"
-    : "${YGGDRASIL_PEERS?YGGDRASIL_PEERS must be set (can be empty)}"
+    : "${YGGPEERS_INSTANCES?YGGPEERS_INSTANCES must be set (can be empty)}"
+    : "${YGGPEERS_COUNT:?YGGPEERS_COUNT must not be empty}"
+    : "${YGGPEERS_CHECK_INTERVAL:?YGGPEERS_CHECK_INTERVAL must not be empty}"
 
     # Validate that YGG_PORT is a valid port number
     if ! [[ "$YGG_PORT" =~ ^[0-9]+$ ]] || [ "$YGG_PORT" -lt 1 ] || [ "$YGG_PORT" -gt 65535 ]; then
         echo "Error: Invalid port in YGG_PORT: '$YGG_PORT'. Must be 1-65535." >&2
         exit 1
+    fi
+
+    # Validate that YGGPEERS_COUNT is an integer from 1 to 10
+    if ! [[ "$YGGPEERS_COUNT" =~ ^[0-9]+$ ]] || [ "$YGGPEERS_COUNT" -lt 1 ] || [ "$YGGPEERS_COUNT" -gt 10 ]; then
+        echo "Error: Invalid YGGPEERS_COUNT: '$YGGPEERS_COUNT'. Must be 1-10." >&2
+        exit 1
+    fi
+
+    # Validate YGGPEERS_CHECK_INTERVAL (minutes): 1-59, or a multiple of 60 up to 1380
+    if ! [[ "$YGGPEERS_CHECK_INTERVAL" =~ ^[0-9]+$ ]] || [ "$YGGPEERS_CHECK_INTERVAL" -lt 1 ] \
+        || [ "$YGGPEERS_CHECK_INTERVAL" -gt 1380 ] \
+        || { [ "$YGGPEERS_CHECK_INTERVAL" -ge 60 ] && [ $((YGGPEERS_CHECK_INTERVAL % 60)) -ne 0 ]; }; then
+        echo "Error: Invalid YGGPEERS_CHECK_INTERVAL: '$YGGPEERS_CHECK_INTERVAL'. Must be 1-59 or a multiple of 60 up to 1380 (minutes)." >&2
+        exit 1
+    fi
+
+    # Validate YGGPEERS_INSTANCES (base URLs) and strip trailing slashes
+    if [ -n "$YGGPEERS_INSTANCES" ]; then
+        local url_re='^https?://[^ /]+(/.*)?$'
+        local instance normalized=""
+        for instance in $YGGPEERS_INSTANCES; do
+            if ! [[ "$instance" =~ $url_re ]]; then
+                echo "Error: Invalid URL in YGGPEERS_INSTANCES: '$instance'. Expected http(s)://host[/path]." >&2
+                exit 1
+            fi
+            while [ "${instance%/}" != "$instance" ]; do
+                instance="${instance%/}"
+            done
+            normalized="${normalized:+$normalized }$instance"
+        done
+        YGGPEERS_INSTANCES="$normalized"
     fi
 
     # Validate that YGGDRASIL_DNS contains only valid IPv6 addresses
@@ -95,10 +129,15 @@ prepare_files_dir() {
     # Bake build-time inputs into the firmware.
     echo "$YGGDRASIL_DNS" > "$tmpfiles/etc/yggmesh/inputs/yggdrasil_dns"
     echo "$DEFAULT_ROOT_PASSWORD" > "$tmpfiles/etc/yggmesh/inputs/root_password"
-    echo "$YGGDRASIL_PEERS" > "$tmpfiles/etc/yggmesh/inputs/yggdrasil_peers"
     echo "$PRIVATE_SSID" > "$tmpfiles/etc/yggmesh/inputs/private_ssid"
     echo "$MESH_ID" > "$tmpfiles/etc/yggmesh/inputs/mesh_id"
     echo "$YGG_PORT" > "$tmpfiles/etc/yggmesh/inputs/ygg_port"
+    echo "$YGGPEERS_INSTANCES" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_instances"
+    echo "$YGGPEERS_COUNT" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_count"
+    echo "$YGGPEERS_CHECK_INTERVAL" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_check_interval"
+
+    # Build timestamp: the device uses it as a clock sanity check before HTTPS requests.
+    date +%s > "$tmpfiles/etc/yggmesh/build_epoch"
 
     echo "$tmpfiles"
 }

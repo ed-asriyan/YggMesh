@@ -1,0 +1,4 @@
+#!/bin/sh
+# Pick global Yggdrasil peers as soon as WAN comes up
+[ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "wan" ] || exit 0
+/usr/sbin/yggmesh-fetch-peers >/dev/null 2>&1 &
