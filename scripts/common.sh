@@ -47,6 +47,7 @@ COMMON_PACKAGES=(
     iwinfo
     curl
     ca-bundle
+    tayga
 )
 
 # ============================================================================
@@ -64,6 +65,7 @@ validate_inputs() {
     : "${YGGPEERS_INSTANCES?YGGPEERS_INSTANCES must be set (can be empty)}"
     : "${YGGPEERS_COUNT:?YGGPEERS_COUNT must not be empty}"
     : "${YGGPEERS_CHECK_INTERVAL:?YGGPEERS_CHECK_INTERVAL must not be empty}"
+    : "${CLEARNET_EXITS?CLEARNET_EXITS must be set (can be empty)}"
 
     # Validate that YGG_PORT is a valid port number
     if ! [[ "$YGG_PORT" =~ ^[0-9]+$ ]] || [ "$YGG_PORT" -lt 1 ] || [ "$YGG_PORT" -gt 65535 ]; then
@@ -102,6 +104,25 @@ validate_inputs() {
         YGGPEERS_INSTANCES="$normalized"
     fi
 
+    # Validate CLEARNET_EXITS: Yggdrasil node addresses (200::/8), not subnets
+    # (300::/8) and not clearnet IPs. Normalized to the compressed form.
+    if [ -n "$CLEARNET_EXITS" ]; then
+        local exit_addr exit_norm normalized_exits=""
+        for exit_addr in $CLEARNET_EXITS; do
+            if ! exit_norm=$(python3 -c "
+import ipaddress, sys
+a = ipaddress.IPv6Address(sys.argv[1])
+if a not in ipaddress.IPv6Network('200::/8'):
+    sys.exit(1)
+print(a.compressed)" "$exit_addr" 2>/dev/null); then
+                echo "Error: Invalid address in CLEARNET_EXITS: '$exit_addr'. Expected a Yggdrasil node address in 200::/8." >&2
+                exit 1
+            fi
+            normalized_exits="${normalized_exits:+$normalized_exits }$exit_norm"
+        done
+        CLEARNET_EXITS="$normalized_exits"
+    fi
+
     # Validate that YGGDRASIL_DNS contains only valid IPv6 addresses
     if [ -n "$YGGDRASIL_DNS" ]; then
         for ip in $YGGDRASIL_DNS; do
@@ -135,6 +156,7 @@ prepare_files_dir() {
     echo "$YGGPEERS_INSTANCES" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_instances"
     echo "$YGGPEERS_COUNT" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_count"
     echo "$YGGPEERS_CHECK_INTERVAL" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_check_interval"
+    echo "$CLEARNET_EXITS" > "$tmpfiles/etc/yggmesh/inputs/clearnet_exits"
 
     # Build timestamp: the device uses it as a clock sanity check before HTTPS requests.
     date +%s > "$tmpfiles/etc/yggmesh/build_epoch"

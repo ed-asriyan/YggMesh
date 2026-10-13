@@ -11,7 +11,7 @@ This project builds a mesh network for cases where normal network infrastructure
 - [Yggdrasil](https://yggdrasil-network.github.io) runs directly on top of those 802.11s interfaces and provides end-to-end encrypted IPv6 mesh routing.
 - All WiFi clients can resolve and access [Alfis](https://alfis.name) domains (such as `.ygg` and other Yggdrasil services) out of the box, thanks to integrated Alfis DNS forwarding.
 - Every node runs an open WiFi hotspot. Phones and laptops that connect to it get access to Yggdrasil IPv6.
-- Clearnet access is **not** provided out-of-the-box after flashing! Configuration after the first boot is required. Read [Clearnet Access](#clearnet-access).
+- Clearnet access is **not** provided out-of-the-box after flashing! Either build the firmware with [clearnet exits](#option-a-transparent-clearnet-through-exit-nodes-recommended) or configure it after the first boot. Read [Clearnet Access](#clearnet-access).
 
 ![Diagram](./diagram.drawio.svg)
 
@@ -55,6 +55,7 @@ Technically, it combines these layers:
 - If it has internet on WAN, picks public global Yggdrasil peers by itself (see [Clearnet Access](#1-connect-yggmesh-to-the-global-yggdrasil-network)).
 - Advertises a `300::/64` Yggdrasil subnet on `br-private` so clients receive a `200::/7` IPv6 address via SLAAC.
 - Creates an open public WiFi hotspot (`YggMesh`) across all nodes.
+- If built with `clearnet_exits`, sends all clients' IPv4 traffic through those exits only (see [Clearnet Access](#2-connecting-to-global-clearnet-the-internet)). Clients' IPv6 traffic may reach Yggdrasil only.
 
 ## Backlog
 You can find the next items planned to add to YggMesh [here](https://github.com/users/ed-asriyan/projects/1/views/1).
@@ -75,6 +76,7 @@ Fork this repository, then go to **Actions → Build Firmware → Run workflow**
 | `yggpeers_instances` | Space-separated base URLs of [yggpeers instances](https://gitfield.org/fsky/yggpeers) used to auto-discover public Yggdrasil peers. A peer is used only if a majority of the reachable instances report it as up. Leave empty to disable public peers discovery and rely only on multicast discovery. |
 | `yggpeers_count` | Target number (1-10, default `3`) of global Yggdrasil peers per node with internet on WAN. Peers configured manually count towards this number. |
 | `yggpeers_check_interval` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380, default `30`). Peers that are down are replaced at the next check. |
+| `clearnet_exits` | Space-separated Yggdrasil addresses (`200::/8`) of [clearnet exits](#option-a-transparent-clearnet-through-exit-nodes-recommended), in order of preference. When set, all clients' IPv4 traffic goes through the first healthy exit and **never** directly to WAN. Leave empty for direct WAN access. |
 
 To trigger a release build for all devices at once, push a git tag (e.g. `v1.0.0`). Firmware for all supported devices will be built and attached to a GitHub Release automatically.
 
@@ -96,6 +98,7 @@ YGGDRASIL_DNS="308:c8:48:45:: 300:7c75:d590:c5d8::100" \
 YGGPEERS_INSTANCES="https://yggpeers.fsky.io" \
 YGGPEERS_COUNT="3" \
 YGGPEERS_CHECK_INTERVAL="30" \
+CLEARNET_EXITS="" \
 ./scripts/build_router.sh axt1800
 ```
 
@@ -111,6 +114,7 @@ The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target)
 | `YGGPEERS_INSTANCES` | Space-separated base URLs of [yggpeers](https://gitfield.org/fsky/yggpeers) instances used to auto-discover public peers. Can be empty to disable auto-discovery. |
 | `YGGPEERS_COUNT` | Target number (1-10) of global Yggdrasil peers per node with internet on WAN. Manually configured peers count towards this number. |
 | `YGGPEERS_CHECK_INTERVAL` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380). |
+| `CLEARNET_EXITS` | Space-separated Yggdrasil addresses (`200::/8`) of [clearnet exits](#option-a-transparent-clearnet-through-exit-nodes-recommended), in order of preference. Can be empty for direct WAN access. |
 
 ## Verification
 To verify the mesh is working correctly, set up a 3-node linear test (A → B → C).
@@ -159,7 +163,25 @@ A node with internet on WAN picks peers like this: it asks the [yggpeers](https:
 Now the entire local YggMesh network is a part of the global Yggdrasil network.
 
 ### 2. Connecting to global clearnet (the Internet)
-Setup [yggdrasil-clearnet-proxy](https://github.com/ed-asriyan/yggdrasil-clearnet-proxy) - read the project's readme and setup socks5 proxy on your device connected to YggMesh WiFi.
+Both options need an exit node: a server that is in Yggdrasil and on the Internet at the same time. Run [yggdrasil-clearnet-proxy](https://github.com/ed-asriyan/yggdrasil-clearnet-proxy) on any VPS with a single Docker command.
+
+#### Option A: Transparent clearnet through exit nodes (recommended)
+Build the firmware with `clearnet_exits` set to the Yggdrasil addresses of one or more exits. Clients need nothing: any phone or laptop connected to the YggMesh WiFi gets the Internet over IPv4, any protocol (TCP, UDP, QUIC, ping).
+
+How it works ([464XLAT](https://datatracker.ietf.org/doc/rfc6877/), no tunnels and no extra encryption on top of Yggdrasil):
+1. The node translates the clients' IPv4 packets into IPv6 packets addressed to `<exit's Yggdrasil /64 subnet>::<IPv4 address>` and sends them from its own Yggdrasil address.
+2. Yggdrasil delivers them to the exit, which translates them back into IPv4 (NAT64) and sends them to the Internet from its own IP.
+
+Rules:
+- **All** clients' IPv4 traffic goes through the exits, even on nodes with internet on WAN: your IP is never used for clients' traffic. If no exit works, clients have no clearnet at all. The node itself still uses WAN to reach its global Yggdrasil peers.
+- Clients' IPv6 traffic may reach Yggdrasil addresses only. Clearnet IPv6 is not provided; dual-stack sites work over IPv4.
+- The exits are used in the configured order. Every node checks them every 30 seconds: the active exit is replaced after 3 failed checks, and an exit listed earlier takes over again after 5 minutes of successful checks. Switching exits breaks open connections, as the public IP changes.
+- An exit may allow only some nodes. Give its owner the Yggdrasil address of **every** node that should use it: the address starting with `2` shown by `ip -6 addr show dev yggdrasil` on the node (or in LuCI → Network → Interfaces → yggdrasil). The address changes when a node is flashed again.
+- Known limitations: on nodes with internet on WAN some DNS queries of the clients may still go through WAN; pings larger than 1260 bytes do not pass the translation (regular pings, TCP and UDP of any size do).
+- Diagnostics: `logread -e yggmesh-clearnet`.
+
+#### Option B: SOCKS5 proxy on every client
+Configure the exit's SOCKS5 proxy (the exit's Yggdrasil address, port `1080`) on each device connected to the YggMesh WiFi. Works with any firmware, but every user has to set it up, and only apps that support SOCKS5 use it.
 
 ## License
 

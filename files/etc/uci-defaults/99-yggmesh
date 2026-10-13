@@ -35,6 +35,10 @@ YGGPEERS_COUNT=$(cat /etc/yggmesh/inputs/yggpeers_count)
 # Minutes between checks of the global peers
 YGGPEERS_CHECK_INTERVAL=$(cat /etc/yggmesh/inputs/yggpeers_check_interval)
 
+# Yggdrasil addresses of clearnet exits (space-separated, may be empty).
+# Non-empty: all client IPv4 goes through these exits only, never to WAN.
+CLEARNET_EXITS=$(cat /etc/yggmesh/inputs/clearnet_exits)
+
 # Cleanup sensitive build inputs immediately after reading into memory
 rm -rf /etc/yggmesh/inputs
 
@@ -330,11 +334,6 @@ set firewall.wan.masq='1'
 set firewall.wan.mtu_fix='1'
 add_list firewall.wan.network='wan'
 
-# --- Forwarding: lan → wan ---
-set firewall.fwd_lan_wan=forwarding
-set firewall.fwd_lan_wan.src='lan'
-set firewall.fwd_lan_wan.dest='wan'
-
 # --- Standard WAN input rules ---
 set firewall.allow_dhcp_renew=rule
 set firewall.allow_dhcp_renew.name='Allow-DHCP-Renew'
@@ -351,6 +350,19 @@ set firewall.allow_ping.proto='icmp'
 set firewall.allow_ping.icmp_type='echo-request'
 set firewall.allow_ping.target='ACCEPT'
 FW_EOF
+
+# --- Forwarding: lan → wan, IPv4 only ---
+# Clients have Yggdrasil IPv6 addresses only, their IPv6 may reach Yggdrasil
+# and nothing else. With clearnet exits there is no LAN → WAN forwarding at all:
+# client IPv4 goes through the exits only (see section 8.1), never directly.
+if [ -z "$CLEARNET_EXITS" ]; then
+    uci batch <<-FW_WAN_EOF
+set firewall.fwd_lan_wan=forwarding
+set firewall.fwd_lan_wan.src='lan'
+set firewall.fwd_lan_wan.dest='wan'
+set firewall.fwd_lan_wan.family='ipv4'
+FW_WAN_EOF
+fi
 
 uci commit firewall
 
@@ -384,6 +396,15 @@ uci -q delete dhcp.@dnsmasq[0].server
 # public resolvers would answer NXDOMAIN first. Everything else uses public DNS.
 for yggdrasil_dns in $YGGDRASIL_DNS; do
     uci add_list dhcp.@dnsmasq[0].server="/ygg/${yggdrasil_dns}"
+done
+# With clearnet exits, also query 1.1.1.1 and 8.8.8.8 through every exit's
+# NAT64 prefix, so nodes without WAN resolve clearnet names. The plain servers
+# stay: the node itself needs them over WAN to find its Yggdrasil peers.
+for clearnet_exit in $CLEARNET_EXITS; do
+    clearnet_prefix=$(/usr/sbin/yggmesh-clearnet prefix "$clearnet_exit")
+    [ -n "$clearnet_prefix" ] || continue
+    uci add_list dhcp.@dnsmasq[0].server="${clearnet_prefix}101:101"
+    uci add_list dhcp.@dnsmasq[0].server="${clearnet_prefix}808:808"
 done
 uci add_list dhcp.@dnsmasq[0].server='1.1.1.1'
 uci add_list dhcp.@dnsmasq[0].server='8.8.8.8'
@@ -483,6 +504,55 @@ YGG_FW_EOF
 
 uci commit firewall
 
+# =========================================================================
+# 8.1. CLEARNET EXITS
+#     Client IPv4 → CLAT (tayga, run by yggmesh-clearnet) → exit NAT64
+# =========================================================================
+
+uci set yggmesh.clearnet=clearnet
+uci -q delete yggmesh.clearnet.exit
+for clearnet_exit in $CLEARNET_EXITS; do
+    uci add_list yggmesh.clearnet.exit="$clearnet_exit"
+done
+uci commit yggmesh
+
+if [ -n "$CLEARNET_EXITS" ]; then
+    uci batch <<-CLEARNET_FW_EOF
+# --- Zone: clearnet (the CLAT tun device created by yggmesh-clearnet) ---
+set firewall.clearnet_zone=zone
+set firewall.clearnet_zone.name='clearnet'
+add_list firewall.clearnet_zone.device='clat'
+set firewall.clearnet_zone.input='REJECT'
+set firewall.clearnet_zone.output='ACCEPT'
+set firewall.clearnet_zone.forward='REJECT'
+# NAT44: clients 10.0.0.x → the single CLAT address 192.0.0.1
+set firewall.clearnet_zone.masq='1'
+
+# Client IPv4 → CLAT
+set firewall.fwd_lan_clearnet=forwarding
+set firewall.fwd_lan_clearnet.src='lan'
+set firewall.fwd_lan_clearnet.dest='clearnet'
+set firewall.fwd_lan_clearnet.family='ipv4'
+
+# Translated IPv6 (fd64::2) → Yggdrasil
+set firewall.fwd_clearnet_ygg=forwarding
+set firewall.fwd_clearnet_ygg.src='clearnet'
+set firewall.fwd_clearnet_ygg.dest='yggdrasil'
+set firewall.fwd_clearnet_ygg.family='ipv6'
+
+# NAT66: translated traffic leaves from the node's own 200::/8 address,
+# the address the exits allow. Unmasqueraded fd64:: would be dropped by Yggdrasil.
+set firewall.clearnet_nat66=nat
+set firewall.clearnet_nat66.name='Clearnet-NAT66'
+set firewall.clearnet_nat66.family='ipv6'
+set firewall.clearnet_nat66.src='yggdrasil'
+set firewall.clearnet_nat66.src_ip='fd64::/64'
+set firewall.clearnet_nat66.target='MASQUERADE'
+CLEARNET_FW_EOF
+    uci commit firewall
+    /etc/init.d/yggmesh-clearnet enable 2>/dev/null || true
+fi
+
 # Enable yggdrasil service
 /etc/init.d/yggdrasil enable 2>/dev/null || true
 
@@ -542,5 +612,10 @@ logger -t yggmesh "Private: ${PRIVATE_SSID} @ ${PRIV_IP}/24"
 logger -t yggmesh "Mesh ID: ${MESH_ID}"
 logger -t yggmesh "Yggdrasil: ${YGG_ADDR} (multicast discovery on br-private)"
 logger -t yggmesh "Private IPv6: Yggdrasil 300::/64 SLAAC"
+if [ -n "$CLEARNET_EXITS" ]; then
+    logger -t yggmesh "Clearnet: through exits only: ${CLEARNET_EXITS}"
+else
+    logger -t yggmesh "Clearnet: direct through WAN"
+fi
 
 exit 0

@@ -37,6 +37,11 @@ on:
         required: false
         default: YggMesh
         type: string
+      clearnet_exits:
+        description: Space-separated Yggdrasil addresses (200::/8) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). When set, all client IPv4 goes through the first healthy exit and never directly to WAN. Leave empty for direct WAN access.
+        required: false
+        default: ""
+        type: string
   workflow_dispatch:
     inputs:
       device:
@@ -82,6 +87,11 @@ on:
         required: false
         default: YggMesh
         type: string
+      clearnet_exits:
+        description: Space-separated Yggdrasil addresses (200::/8) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). When set, all client IPv4 goes through the first healthy exit and never directly to WAN. Leave empty for direct WAN access.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -108,6 +118,7 @@ jobs:
           YGGPEERS_COUNT: ${{ inputs.yggpeers_count || '3' }}
           YGGPEERS_CHECK_INTERVAL: ${{ inputs.yggpeers_check_interval || '30' }}
           PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
+          CLEARNET_EXITS: ${{ inputs.clearnet_exits }}
           MESH_ID: "yggmesh/mesh"
           YGG_PORT: "17000"
         run: |

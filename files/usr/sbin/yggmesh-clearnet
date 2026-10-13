@@ -1,0 +1,246 @@
+#!/bin/sh
+# shellcheck disable=SC3043
+# YggMesh — clearnet access through Yggdrasil exit nodes (464XLAT).
+#
+# When exits are configured (yggmesh.clearnet.exit), every IPv4 packet from
+# the Wi-Fi clients goes to one of them, never to WAN. The node is the CLAT,
+# the exit is the NAT64 (see yggdrasil-clearnet-proxy):
+#
+#   client 10.0.0.x --NAT44--> 192.0.0.1 --tayga--> fd64::2 --NAT66--> 200:<node>
+#     --Yggdrasil--> <exit /64>::a.b.c.d --exit NAT64--> a.b.c.d
+#
+# The NAT64 prefix of an exit is derived from its Yggdrasil address: the
+# exit's routed /64 (first byte 0x02 -> 0x03) followed by 32 zero bits, so the
+# IPv4 address is in the last 32 bits (RFC 6052 /96). Yggdrasil routes the
+# exit's /64 to the exit, no other configuration is needed. The exit allows
+# nodes by their 200::/8 address: translated traffic is masqueraded to it.
+#
+# Usage:
+#   yggmesh-clearnet run          monitor loop, started by /etc/init.d/yggmesh-clearnet
+#   yggmesh-clearnet prefix ADDR  print the NAT64 prefix of exit ADDR, e.g. 300:1:2:3::
+#
+# Exit selection (one check every CHECK_INTERVAL seconds):
+#   - the exits are tried in the configured order; the first healthy one is used;
+#   - the active exit is dropped after FAIL_LIMIT failed checks in a row;
+#   - an exit listed before the active one takes over again after RETURN_LIMIT
+#     successful checks in a row, so a flapping exit does not bounce clients;
+#   - without a healthy exit clients have no clearnet at all: the client
+#     routing table holds an unreachable route and the firewall has no
+#     LAN -> WAN forwarding in this mode.
+# A check is an HTTP request to 1.1.1.1 or 8.8.8.8 through the exit's NAT64
+# prefix, sent natively over Yggdrasil from the node address. It covers the
+# Yggdrasil path, the exit's allow list, its NAT64 and its internet access.
+#
+# Logs: logread -e yggmesh-clearnet
+
+TAG="yggmesh-clearnet"
+CLAT_DEV="clat"
+CLAT_MTU=1520            # IPv4 1500 + 20 bytes of IPv6 header growth
+CLAT_HOST4="192.0.0.1"   # NAT44 target of the clients (RFC 7335 range)
+CLAT_TAYGA4="192.0.0.2"
+CLAT_NET6="fd64::/64"    # translated traffic, masqueraded to the node address by fw4
+CLAT_TAYGA6="fd64::1"
+CLAT_USER6="fd64::2"
+TABLE=64                 # routing table of the client IPv4 traffic
+RULE_PRIO=6400
+CLIENT_DEV="br-private"
+CONF="/var/etc/yggmesh-clearnet-tayga.conf"
+PIDFILE="/var/run/yggmesh-clearnet-tayga.pid"
+CHECK_INTERVAL=30
+FAIL_LIMIT=3
+RETURN_LIMIT=10
+
+log() {
+    logger -t "$TAG" "$*"
+}
+
+# Prints the NAT64 /96 prefix (without the length, ending in "::") of the exit
+# with Yggdrasil address $1, or nothing if $1 is not an address in 200::/8.
+# The address is expanded to 8 groups first (busybox awk has no IPv6 helpers).
+exit_prefix() {
+    echo "$1" | awk '
+        function hex(s,    i, n, c) {
+            n = 0
+            s = tolower(s)
+            for (i = 1; i <= length(s); i++) {
+                c = index("0123456789abcdef", substr(s, i, 1))
+                if (c == 0) return -1
+                n = n * 16 + c - 1
+            }
+            return n
+        }
+        {
+            a = $0
+            if (a !~ /^[0-9a-fA-F:]+$/) exit
+            n = split(a, halves, "::")
+            if (n > 2) exit
+            nh = (halves[1] == "") ? 0 : split(halves[1], h, ":")
+            nt = (n == 2 && halves[2] != "") ? split(halves[2], t, ":") : 0
+            if (n == 1 && nh != 8) exit
+            if (n == 2 && nh + nt > 7) exit
+            for (i = 1; i <= 8; i++) g[i] = 0
+            for (i = 1; i <= nh; i++) g[i] = hex(h[i])
+            for (i = 1; i <= nt; i++) g[8 - nt + i] = hex(t[i])
+            for (i = 1; i <= 8; i++) if (g[i] < 0 || g[i] > 65535) exit
+            if (g[1] < 512 || g[1] > 767) exit
+            printf "%x:%x:%x:%x::\n", g[1] + 256, g[2], g[3], g[4]
+        }'
+}
+
+# Writes the tayga config. With prefix $1 the CLAT translates towards that
+# exit; without it only the static map is set (enough for --mktun).
+write_conf() {
+    mkdir -p "${CONF%/*}"
+    {
+        echo "tun-device $CLAT_DEV"
+        echo "ipv4-addr $CLAT_TAYGA4"
+        echo "ipv6-addr $CLAT_TAYGA6"
+        echo "map $CLAT_HOST4 $CLAT_USER6"
+        [ -n "$1" ] && echo "prefix ${1}/96"
+    } > "$CONF"
+}
+
+tayga_stop() {
+    local pid
+    pid=$(cat "$PIDFILE" 2>/dev/null)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null
+        sleep 1
+    fi
+    rm -f "$PIDFILE"
+}
+
+tayga_running() {
+    local pid
+    pid=$(cat "$PIDFILE" 2>/dev/null)
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+# Client IPv4 goes nowhere: the kill switch. Used at start and whenever no
+# exit is healthy, so clients fail fast instead of waiting for timeouts.
+route_block() {
+    ip -4 route replace unreachable default table "$TABLE"
+}
+
+# Creates the persistent tun device, its addresses and the policy routing.
+# Everything is idempotent: the service may be restarted at any time.
+setup() {
+    write_conf ""
+    ip link show "$CLAT_DEV" >/dev/null 2>&1 || tayga -c "$CONF" --mktun >/dev/null 2>&1
+    ip link set "$CLAT_DEV" mtu "$CLAT_MTU" up
+    ip -4 addr replace "${CLAT_HOST4}/29" dev "$CLAT_DEV"
+    ip -6 route replace "$CLAT_NET6" dev "$CLAT_DEV"
+    ip -4 rule del priority "$RULE_PRIO" 2>/dev/null
+    ip -4 rule add iif "$CLIENT_DEV" lookup "$TABLE" priority "$RULE_PRIO"
+    route_block
+}
+
+# Points the CLAT at exit $1 (prefix $2): restarts tayga with the new prefix
+# and routes the client IPv4 into it. Running connections break, as the
+# public IPv4 address changes anyway.
+activate() {
+    tayga_stop
+    write_conf "$2"
+    tayga -n -c "$CONF" -p "$PIDFILE" >/dev/null 2>&1 &
+    ip -4 route replace default dev "$CLAT_DEV" table "$TABLE"
+    log "Using exit $1 (NAT64 prefix ${2}/96)"
+}
+
+# Returns 0 if exit prefix $1 forwards to the internet: an HTTP answer from
+# 1.1.1.1 or 8.8.8.8 (any status) through it.
+check() {
+    local p="$1"
+    curl -s -o /dev/null --connect-timeout 5 --max-time 10 "http://[${p}101:101]/" && return 0
+    curl -s -o /dev/null --connect-timeout 5 --max-time 10 "http://[${p}808:808]/"
+}
+
+shutdown() {
+    tayga_stop
+    route_block
+    log "Stopped, clients have no clearnet access"
+    exit 0
+}
+
+run() {
+    local exits e i n active="" active_i=0 fails=0 p streak
+
+    exits=$(uci -q get yggmesh.clearnet.exit)
+    [ -n "$exits" ] || { log "No exits configured"; exit 0; }
+
+    trap shutdown INT TERM
+    setup
+
+    # Keep only exits with a valid address; prefixes are computed once
+    n=0
+    for e in $exits; do
+        p=$(exit_prefix "$e")
+        if [ -z "$p" ]; then
+            log "Ignoring invalid exit address: $e"
+            continue
+        fi
+        n=$((n + 1))
+        eval "exit_$n=\$e prefix_$n=\$p streak_$n=0"
+    done
+    [ "$n" -gt 0 ] || { log "No valid exits"; exit 1; }
+    log "Clearnet through $n exit(s): $exits"
+
+    while :; do
+        if [ -n "$active" ]; then
+            eval "p=\$prefix_$active_i"
+            if check "$p" && tayga_running; then
+                fails=0
+            else
+                fails=$((fails + 1))
+                if [ "$fails" -ge "$FAIL_LIMIT" ]; then
+                    log "Exit $active is down"
+                    active=""
+                    tayga_stop
+                    route_block
+                fi
+            fi
+        fi
+
+        if [ -z "$active" ]; then
+            i=1
+            while [ "$i" -le "$n" ]; do
+                eval "e=\$exit_$i p=\$prefix_$i"
+                if check "$p"; then
+                    active="$e" active_i=$i fails=0
+                    activate "$e" "$p"
+                    break
+                fi
+                i=$((i + 1))
+            done
+        else
+            # Preferred exits come back only after a stable streak
+            i=1
+            while [ "$i" -lt "$active_i" ]; do
+                eval "e=\$exit_$i p=\$prefix_$i streak=\$streak_$i"
+                if check "$p"; then
+                    streak=$((streak + 1))
+                else
+                    streak=0
+                fi
+                eval "streak_$i=\$streak"
+                if [ "$streak" -ge "$RETURN_LIMIT" ]; then
+                    log "Exit $e is stable again, switching back"
+                    active="$e" active_i=$i fails=0
+                    eval "streak_$i=0"
+                    activate "$e" "$p"
+                    break
+                fi
+                i=$((i + 1))
+            done
+        fi
+
+        # Background sleep, so that TERM is handled at once
+        sleep "$CHECK_INTERVAL" &
+        wait $!
+    done
+}
+
+case "$1" in
+    run) run ;;
+    prefix) exit_prefix "$2" ;;
+    *) echo "Usage: $0 run | prefix <exit address>" >&2; exit 1 ;;
+esac
