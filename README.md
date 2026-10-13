@@ -58,7 +58,9 @@ Technically, it combines these layers:
 - Sends clients' IPv4 traffic directly to WAN, or only through [clearnet exits](#transparent-clearnet-through-exit-nodes) (see [Clearnet Access](#2-connecting-to-global-clearnet-the-internet)). Clients' IPv6 traffic may reach Yggdrasil only.
 
 ## Settings
-Everything a node owner may change lives in one file, `/etc/config/yggmesh`, and nothing else does:
+Open LuCI (`http://10.0.0.1` from a client, user `root`): the first page, **YggMesh**, has every setting of the node, shows its Yggdrasil address, peers and clearnet state, and can generate a new Yggdrasil key. Change the node there: the settings are checked and applied to the whole node. The other LuCI pages are for diagnostics; changing the network, WiFi, firewall or DHCP there may break the node and is overwritten by the next save on the YggMesh page.
+
+The settings live in one file, `/etc/config/yggmesh`, and nothing else does:
 
 | Section | Options |
 |---------|---------|
@@ -67,7 +69,7 @@ Everything a node owner may change lives in one file, `/etc/config/yggmesh`, and
 | `discovery` | `instance` (list of [yggpeers](https://gitfield.org/fsky/yggpeers) URLs, none: no public peers discovery); `count`; `check_interval` (minutes); `rerank_interval` (days) |
 | `clearnet` | `mode`: `wan`, `exit`, `wan_exit` or `off` (see [Clearnet Access](#2-connecting-to-global-clearnet-the-internet)); `exit` (list of exits) |
 
-The build inputs are only the defaults of a fresh install. The rest of the node configuration (network, WiFi, firewall, DNS) is built from this file every time it changes: change the settings here, not on the other LuCI pages or in the other configs, where YggMesh overwrites them. For example, over SSH:
+The build inputs are only the defaults of a fresh install. The rest of the node configuration (network, WiFi, firewall, DNS) is built from this file every time it changes. Over SSH:
 ```sh
 uci set yggmesh.wifi.ssid='My mesh'
 uci set yggmesh.clearnet.mode='wan'
@@ -207,7 +209,7 @@ Rules of the `exit` mode:
 - Clients' IPv6 traffic may reach Yggdrasil addresses only. Clearnet IPv6 is not provided; dual-stack sites work over IPv4.
 - Every node checks all exits every 30 seconds and measures their latency: the TCP handshake time to 1.1.1.1 through each exit, i.e. the Mesh, Yggdrasil and the exit's own internet together. The fastest working exit is used; the configured order only breaks ties. The active exit is kept while it works, because switching exits changes the public IP and breaks open connections: it is replaced after 3 failed checks, or when another exit has worked for 5 minutes and is clearly faster (under 70% of the latency and at least 30 ms faster).
 - Domain names are resolved by the node through its own DNS (`.ygg` goes to the Yggdrasil DNS resolvers, `yggmesh.yggdrasil.dns`, so set them for `.ygg` exits), re-resolved every 10 minutes and on every check while no exit works. When the address of a name changes, the node follows it. Whoever controls the DNS record decides which exit your clients use.
-- An exit may allow only some nodes. Give its owner the Yggdrasil address of **every** node that should use it: the address starting with `2` shown by `ip -6 addr show dev yggdrasil` on the node (or in LuCI → Network → Interfaces → yggdrasil). The address changes only when the node gets a new key: a new `yggmesh.yggdrasil.private_key`, or flashing without keeping settings.
+- An exit may allow only some nodes. Give its owner the Yggdrasil address of **every** node that should use it: the node address on the YggMesh page in LuCI, or the address starting with `2` shown by `ip -6 addr show dev yggdrasil`. The address changes only when the node gets a new key: a new `yggmesh.yggdrasil.private_key`, or flashing without keeping settings.
 - Known limitations: on nodes with internet on WAN some DNS queries of the clients may still go through WAN; pings larger than 1260 bytes do not pass the translation (regular pings, TCP and UDP of any size do).
 - Diagnostics: `logread -e yggmesh-clearnet`. If the exit's Yggdrasil address answers pings but the node keeps reporting it down, make sure no other Yggdrasil node runs with the same private key: traffic then goes to the wrong one.
 - The mode and the exits are [settings](#settings) and can be changed at any time without flashing:

@@ -1,0 +1,13 @@
+{
+	"admin/yggmesh": {
+		"title": "YggMesh",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "yggmesh/settings"
+		},
+		"depends": {
+			"acl": [ "luci-app-yggmesh" ]
+		}
+	}
+}

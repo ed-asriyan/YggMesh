@@ -59,6 +59,9 @@
 # DNS_FILE (dnsmasq --servers-file, re-read on SIGHUP) when the active exit
 # changes. The file is persistent, so it is ready before dnsmasq starts.
 #
+# State: STATUS_FILE (exit, address, rtt of the active exit; wan: 1 while
+# clients use WAN), rewritten after every check.
+#
 # Logs: logread -e yggmesh-clearnet
 
 TAG="yggmesh-clearnet"
@@ -76,6 +79,7 @@ CLIENT_DEV="br-private"
 CONF="/var/etc/yggmesh-clearnet-tayga.conf"
 PIDFILE="/var/run/yggmesh-clearnet-tayga.pid"
 DNS_FILE="/etc/yggmesh/clearnet-dns.conf"
+STATUS_FILE="/var/run/yggmesh-clearnet.status"   # for the LuCI page
 CHECK_INTERVAL=30
 FAIL_LIMIT=3
 RETURN_LIMIT=10
@@ -302,8 +306,16 @@ resolve_exits() {
 # or cleanup() replaces it: without tayga the client IPv4 goes nowhere.
 shutdown() {
     tayga_stop
+    rm -f "$STATUS_FILE"
     log "Stopped"
     exit 0
+}
+
+write_status() {
+    local e="" a="" r=""
+    [ "$active" -gt 0 ] && eval "e=\$exit_$active a=\$addr_$active r=\$rtt_$active"
+    printf 'exit=%s\naddress=%s\nrtt=%s\nwan=%s\n' "$e" "$a" "$r" "$wan_up" > "${STATUS_FILE}.new" \
+        && mv "${STATUS_FILE}.new" "$STATUS_FILE"
 }
 
 # Removes everything setup(), activate() and wan_use() created: the service
@@ -311,6 +323,7 @@ shutdown() {
 # still has no way out: the firewall has no LAN -> WAN forwarding then.
 cleanup() {
     tayga_stop
+    rm -f "$STATUS_FILE"
     ip -4 rule del priority "$RULE_PRIO" 2>/dev/null
     ip -4 rule del priority "$WAN_PRIO" 2>/dev/null
     ip -4 route flush table "$TABLE" 2>/dev/null
@@ -433,6 +446,8 @@ run() {
                 fi
             fi
         fi
+
+        write_status
 
         # Background sleep, so that TERM is handled at once
         sleep "$CHECK_INTERVAL" &
