@@ -1,0 +1,17 @@
+{
+	"luci-app-yggmesh": {
+		"description": "Grant access to the YggMesh settings",
+		"read": {
+			"ubus": {
+				"luci.yggmesh": [ "keyInfo", "status" ]
+			},
+			"uci": [ "yggmesh" ]
+		},
+		"write": {
+			"ubus": {
+				"luci.yggmesh": [ "generateKey" ]
+			},
+			"uci": [ "yggmesh" ]
+		}
+	}
+}
