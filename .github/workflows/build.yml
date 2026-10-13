@@ -38,7 +38,7 @@ on:
         default: YggMesh
         type: string
       clearnet_exits:
-        description: Space-separated Yggdrasil addresses (200::/8) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). When set, all client IPv4 goes through the first healthy exit and never directly to WAN. Leave empty for direct WAN access.
+        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). When set, all client IPv4 goes through the first healthy exit and never directly to WAN. Leave empty for direct WAN access.
         required: false
         default: ""
         type: string
@@ -88,7 +88,7 @@ on:
         default: YggMesh
         type: string
       clearnet_exits:
-        description: Space-separated Yggdrasil addresses (200::/8) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). When set, all client IPv4 goes through the first healthy exit and never directly to WAN. Leave empty for direct WAN access.
+        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). When set, all client IPv4 goes through the first healthy exit and never directly to WAN. Leave empty for direct WAN access.
         required: false
         default: ""
         type: string

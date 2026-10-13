@@ -15,6 +15,12 @@
 # exit's /64 to the exit, no other configuration is needed. The exit allows
 # nodes by their 200::/8 address: translated traffic is masqueraded to it.
 #
+# An exit is a Yggdrasil address (200::/8) or a domain name (e.g. an Alfis
+# .ygg domain) with an AAAA record in 200::/8. Names are resolved through the
+# local dnsmasq, which sends .ygg to the Yggdrasil DNS resolvers: every
+# RESOLVE_INTERVAL seconds, and on every check while no exit works or a name is
+# unresolved. When the address of the active exit changes, the CLAT follows it.
+#
 # Usage:
 #   yggmesh-clearnet run          monitor loop, started by /etc/init.d/yggmesh-clearnet
 #   yggmesh-clearnet prefix ADDR  print the NAT64 prefix of exit ADDR, e.g. 300:1:2:3::
@@ -31,6 +37,11 @@
 # prefix, sent natively over Yggdrasil from the node address. It covers the
 # Yggdrasil path, the exit's allow list, its NAT64 and its internet access.
 #
+# DNS: dnsmasq also queries 1.1.1.1 and 8.8.8.8 through the active exit, so
+# nodes without WAN resolve clearnet names. Those servers are written to
+# DNS_FILE (dnsmasq --servers-file, re-read on SIGHUP) when the active exit
+# changes. The file is persistent, so it is ready before dnsmasq starts.
+#
 # Logs: logread -e yggmesh-clearnet
 
 TAG="yggmesh-clearnet"
@@ -46,9 +57,11 @@ RULE_PRIO=6400
 CLIENT_DEV="br-private"
 CONF="/var/etc/yggmesh-clearnet-tayga.conf"
 PIDFILE="/var/run/yggmesh-clearnet-tayga.pid"
+DNS_FILE="/etc/yggmesh/clearnet-dns.conf"
 CHECK_INTERVAL=30
 FAIL_LIMIT=3
 RETURN_LIMIT=10
+RESOLVE_INTERVAL=600
 
 log() {
     logger -t "$TAG" "$*"
@@ -87,6 +100,18 @@ exit_prefix() {
         }'
 }
 
+# Prints the first Yggdrasil address (200::/8) of domain name $1, resolved
+# through the local dnsmasq, or nothing.
+resolve_name() {
+    local a
+    for a in $(nslookup "$1" 127.0.0.1 2>/dev/null | sed -n 's/^Address[ 0-9]*:[[:space:]]*//p'); do
+        if [ -n "$(exit_prefix "$a")" ]; then
+            echo "$a"
+            return
+        fi
+    done
+}
+
 # Writes the tayga config. With prefix $1 the CLAT translates towards that
 # exit; without it only the static map is set (enough for --mktun).
 write_conf() {
@@ -98,6 +123,17 @@ write_conf() {
         echo "map $CLAT_HOST4 $CLAT_USER6"
         [ -n "$1" ] && echo "prefix ${1}/96"
     } > "$CONF"
+}
+
+# Points the extra dnsmasq servers at exit prefix $1. The file is rewritten in
+# place (dnsmasq runs in a jail with this very file bind-mounted) and only when
+# its content changes, to spare the flash.
+write_dns() {
+    local want
+    want=$(printf 'server=%s101:101\nserver=%s808:808' "$1" "$1")
+    [ "$(cat "$DNS_FILE" 2>/dev/null)" = "$want" ] && return 0
+    echo "$want" > "$DNS_FILE"
+    killall -HUP dnsmasq 2>/dev/null
 }
 
 tayga_stop() {
@@ -135,23 +171,68 @@ setup() {
     route_block
 }
 
-# Points the CLAT at exit $1 (prefix $2): restarts tayga with the new prefix
-# and routes the client IPv4 into it. Running connections break, as the
-# public IPv4 address changes anyway.
+# Points the CLAT at exit number $1: restarts tayga with its prefix, routes
+# the client IPv4 into it and moves the DNS servers there. Running
+# connections break, as the public IPv4 address changes anyway.
 activate() {
+    local e a p
+    eval "e=\$exit_$1 a=\$addr_$1 p=\$prefix_$1"
     tayga_stop
-    write_conf "$2"
+    write_conf "$p"
     tayga -n -c "$CONF" -p "$PIDFILE" >/dev/null 2>&1 &
     ip -4 route replace default dev "$CLAT_DEV" table "$TABLE"
-    log "Using exit $1 (NAT64 prefix ${2}/96)"
+    write_dns "$p"
+    if [ "$e" = "$a" ]; then
+        log "Using exit $e (NAT64 prefix ${p}/96)"
+    else
+        log "Using exit $e = $a (NAT64 prefix ${p}/96)"
+    fi
+}
+
+deactivate() {
+    tayga_stop
+    route_block
+    active=0
 }
 
 # Returns 0 if exit prefix $1 forwards to the internet: an HTTP answer from
 # 1.1.1.1 or 8.8.8.8 (any status) through it.
 check() {
     local p="$1"
+    [ -n "$p" ] || return 1
     curl -s -o /dev/null --connect-timeout 5 --max-time 10 "http://[${p}101:101]/" && return 0
     curl -s -o /dev/null --connect-timeout 5 --max-time 10 "http://[${p}808:808]/"
+}
+
+# Resolves the domain names among the exits. $1 = 1: all of them (periodic
+# refresh), otherwise only those without an address yet. Addresses are fixed.
+# A changed address of the active exit takes effect at once.
+resolve_exits() {
+    local i e a old warned
+    i=1
+    while [ "$i" -le "$n" ]; do
+        eval "e=\$exit_$i old=\$addr_$i"
+        if [ -z "$(exit_prefix "$e")" ] && { [ "$1" = 1 ] || [ -z "$old" ]; }; then
+            a=$(resolve_name "$e")
+            if [ -z "$a" ]; then
+                # Logged once until the name resolves; a known address is kept
+                eval "warned=\$warned_$i"
+                if [ -z "$old" ] && [ -z "$warned" ]; then
+                    log "Cannot resolve exit $e to a Yggdrasil address yet"
+                    eval "warned_$i=1"
+                fi
+            elif [ "$a" != "$old" ]; then
+                eval "warned_$i=''"
+                log "Exit $e resolves to $a"
+                eval "addr_$i=\$a prefix_$i=\$(exit_prefix \"\$a\") streak_$i=0"
+                if [ "$i" = "$active" ]; then
+                    fails=0
+                    activate "$i"
+                fi
+            fi
+        fi
+        i=$((i + 1))
+    done
 }
 
 shutdown() {
@@ -162,7 +243,8 @@ shutdown() {
 }
 
 run() {
-    local exits e i n active="" active_i=0 fails=0 p streak
+    local exits e i p streak now last_resolve=0
+    active=0 fails=0 n=0
 
     exits=$(uci -q get yggmesh.clearnet.exit)
     [ -n "$exits" ] || { log "No exits configured"; exit 0; }
@@ -170,43 +252,50 @@ run() {
     trap shutdown INT TERM
     setup
 
-    # Keep only exits with a valid address; prefixes are computed once
-    n=0
+    # exit_N is the configured address or name, addr_N/prefix_N are filled
+    # right away for addresses and by resolve_exits for names
     for e in $exits; do
-        p=$(exit_prefix "$e")
-        if [ -z "$p" ]; then
-            log "Ignoring invalid exit address: $e"
-            continue
-        fi
         n=$((n + 1))
-        eval "exit_$n=\$e prefix_$n=\$p streak_$n=0"
+        p=$(exit_prefix "$e")
+        if [ -n "$p" ]; then
+            eval "exit_$n=\$e addr_$n=\$e prefix_$n=\$p streak_$n=0"
+        else
+            eval "exit_$n=\$e addr_$n='' prefix_$n='' streak_$n=0"
+        fi
     done
-    [ "$n" -gt 0 ] || { log "No valid exits"; exit 1; }
     log "Clearnet through $n exit(s): $exits"
 
     while :; do
-        if [ -n "$active" ]; then
-            eval "p=\$prefix_$active_i"
+        # Names are refreshed every RESOLVE_INTERVAL, and on every check while
+        # no exit works: a moved exit is then found within one check
+        now=$(date +%s)
+        if [ "$active" -eq 0 ] || [ $((now - last_resolve)) -ge "$RESOLVE_INTERVAL" ]; then
+            resolve_exits 1
+            last_resolve=$now
+        else
+            resolve_exits 0
+        fi
+
+        if [ "$active" -gt 0 ]; then
+            eval "p=\$prefix_$active"
             if check "$p" && tayga_running; then
                 fails=0
             else
                 fails=$((fails + 1))
                 if [ "$fails" -ge "$FAIL_LIMIT" ]; then
-                    log "Exit $active is down"
-                    active=""
-                    tayga_stop
-                    route_block
+                    eval "log \"Exit \$exit_$active is down\""
+                    deactivate
                 fi
             fi
         fi
 
-        if [ -z "$active" ]; then
+        if [ "$active" -eq 0 ]; then
             i=1
             while [ "$i" -le "$n" ]; do
-                eval "e=\$exit_$i p=\$prefix_$i"
+                eval "p=\$prefix_$i"
                 if check "$p"; then
-                    active="$e" active_i=$i fails=0
-                    activate "$e" "$p"
+                    active=$i fails=0
+                    activate "$i"
                     break
                 fi
                 i=$((i + 1))
@@ -214,8 +303,8 @@ run() {
         else
             # Preferred exits come back only after a stable streak
             i=1
-            while [ "$i" -lt "$active_i" ]; do
-                eval "e=\$exit_$i p=\$prefix_$i streak=\$streak_$i"
+            while [ "$i" -lt "$active" ]; do
+                eval "p=\$prefix_$i streak=\$streak_$i"
                 if check "$p"; then
                     streak=$((streak + 1))
                 else
@@ -223,10 +312,10 @@ run() {
                 fi
                 eval "streak_$i=\$streak"
                 if [ "$streak" -ge "$RETURN_LIMIT" ]; then
-                    log "Exit $e is stable again, switching back"
-                    active="$e" active_i=$i fails=0
+                    eval "log \"Exit \$exit_$i is stable again, switching back\""
+                    active=$i fails=0
                     eval "streak_$i=0"
-                    activate "$e" "$p"
+                    activate "$i"
                     break
                 fi
                 i=$((i + 1))

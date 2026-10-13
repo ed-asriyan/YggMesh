@@ -14,7 +14,7 @@
 #   YGGPEERS_INSTANCES     Space-separated yggpeers base URLs for global peer auto-discovery (can be empty to disable)
 #   YGGPEERS_COUNT         Target number of global peers per node with internet on WAN (1-10)
 #   YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380
-#   CLEARNET_EXITS         Space-separated Yggdrasil addresses of clearnet exits (can be empty for direct WAN)
+#   CLEARNET_EXITS         Space-separated Yggdrasil addresses or domain names of clearnet exits (can be empty for direct WAN)
 
 set -euo pipefail
 
@@ -105,7 +105,7 @@ usage() {
     echo "  YGGPEERS_INSTANCES     Space-separated yggpeers base URLs for peer auto-discovery (can be empty to disable)"
     echo "  YGGPEERS_COUNT         Target number of global peers per node (1-10)"
     echo "  YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380"
-    echo "  CLEARNET_EXITS         Space-separated Yggdrasil addresses of clearnet exits (can be empty for direct WAN)"
+    echo "  CLEARNET_EXITS         Space-separated Yggdrasil addresses or domain names of clearnet exits (can be empty for direct WAN)"
     exit 1
 }
 

@@ -35,7 +35,7 @@ YGGPEERS_COUNT=$(cat /etc/yggmesh/inputs/yggpeers_count)
 # Minutes between checks of the global peers
 YGGPEERS_CHECK_INTERVAL=$(cat /etc/yggmesh/inputs/yggpeers_check_interval)
 
-# Yggdrasil addresses of clearnet exits (space-separated, may be empty).
+# Clearnet exits: Yggdrasil addresses or domain names (space-separated, may be empty).
 # Non-empty: all client IPv4 goes through these exits only, never to WAN.
 CLEARNET_EXITS=$(cat /etc/yggmesh/inputs/clearnet_exits)
 
@@ -397,15 +397,16 @@ uci -q delete dhcp.@dnsmasq[0].server
 for yggdrasil_dns in $YGGDRASIL_DNS; do
     uci add_list dhcp.@dnsmasq[0].server="/ygg/${yggdrasil_dns}"
 done
-# With clearnet exits, also query 1.1.1.1 and 8.8.8.8 through every exit's
-# NAT64 prefix, so nodes without WAN resolve clearnet names. The plain servers
-# stay: the node itself needs them over WAN to find its Yggdrasil peers.
-for clearnet_exit in $CLEARNET_EXITS; do
-    clearnet_prefix=$(/usr/sbin/yggmesh-clearnet prefix "$clearnet_exit")
-    [ -n "$clearnet_prefix" ] || continue
-    uci add_list dhcp.@dnsmasq[0].server="${clearnet_prefix}101:101"
-    uci add_list dhcp.@dnsmasq[0].server="${clearnet_prefix}808:808"
-done
+# With clearnet exits, yggmesh-clearnet also points dnsmasq at 1.1.1.1 and
+# 8.8.8.8 through the active exit (servers-file, re-read on SIGHUP), so nodes
+# without WAN resolve clearnet names. The plain servers stay: the node itself
+# needs them over WAN to find its Yggdrasil peers.
+uci -q delete dhcp.@dnsmasq[0].serversfile
+if [ -n "$CLEARNET_EXITS" ]; then
+    mkdir -p /etc/yggmesh
+    touch /etc/yggmesh/clearnet-dns.conf
+    uci set dhcp.@dnsmasq[0].serversfile='/etc/yggmesh/clearnet-dns.conf'
+fi
 uci add_list dhcp.@dnsmasq[0].server='1.1.1.1'
 uci add_list dhcp.@dnsmasq[0].server='8.8.8.8'
 

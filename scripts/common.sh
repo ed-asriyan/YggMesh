@@ -104,18 +104,25 @@ validate_inputs() {
         YGGPEERS_INSTANCES="$normalized"
     fi
 
-    # Validate CLEARNET_EXITS: Yggdrasil node addresses (200::/8), not subnets
-    # (300::/8) and not clearnet IPs. Normalized to the compressed form.
+    # Validate CLEARNET_EXITS: Yggdrasil node addresses (200::/8, not subnets
+    # in 300::/8 and not clearnet IPs) or domain names, resolved by the node.
+    # Addresses are normalized to the compressed form, names to lower case.
     if [ -n "$CLEARNET_EXITS" ]; then
         local exit_addr exit_norm normalized_exits=""
         for exit_addr in $CLEARNET_EXITS; do
             if ! exit_norm=$(python3 -c "
-import ipaddress, sys
-a = ipaddress.IPv6Address(sys.argv[1])
-if a not in ipaddress.IPv6Network('200::/8'):
-    sys.exit(1)
-print(a.compressed)" "$exit_addr" 2>/dev/null); then
-                echo "Error: Invalid address in CLEARNET_EXITS: '$exit_addr'. Expected a Yggdrasil node address in 200::/8." >&2
+import ipaddress, re, sys
+v = sys.argv[1]
+if ':' in v:
+    a = ipaddress.IPv6Address(v)
+    if a not in ipaddress.IPv6Network('200::/8'):
+        sys.exit(1)
+    print(a.compressed)
+elif re.fullmatch(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}', v.lower()):
+    print(v.lower())
+else:
+    sys.exit(1)" "$exit_addr" 2>/dev/null); then
+                echo "Error: Invalid exit in CLEARNET_EXITS: '$exit_addr'. Expected a Yggdrasil node address in 200::/8 or a domain name." >&2
                 exit 1
             fi
             normalized_exits="${normalized_exits:+$normalized_exits }$exit_norm"
