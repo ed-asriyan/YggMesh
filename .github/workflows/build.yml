@@ -38,7 +38,7 @@ on:
         default: YggMesh
         type: string
       clearnet_exits:
-        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). The fastest working one is used.
+        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used.
         required: false
         default: ""
         type: string
@@ -93,7 +93,7 @@ on:
         default: YggMesh
         type: string
       clearnet_exits:
-        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). The fastest working one is used.
+        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used.
         required: false
         default: ""
         type: string

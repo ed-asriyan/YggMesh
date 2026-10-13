@@ -189,7 +189,7 @@ A node with internet on WAN picks peers like this: it asks the [yggpeers](https:
 Now the entire local YggMesh network is a part of the global Yggdrasil network.
 
 ### 2. Connecting to global clearnet (the Internet)
-YggMesh needs an exit node: a server that is in Yggdrasil and on the Internet at the same time. Run [yggdrasil-clearnet-proxy](https://github.com/ed-asriyan/yggdrasil-clearnet-proxy) on any VPS with a single Docker command.
+YggMesh needs an exit node: a server that is in Yggdrasil and on the Internet at the same time. Run [YggMesh-exit-node](https://github.com/ed-asriyan/YggMesh-exit-node) on any VPS with a single Docker command.
 
 #### Transparent clearnet through exit nodes
 Set the clearnet mode to `exit` and add one or more exits (in the [settings](#settings), or at build time with `clearnet_exits`): their Yggdrasil addresses, or domain names with an AAAA record pointing to the Yggdrasil address (e.g. an [Alfis](https://alfis.name) `.ygg` domain). Clients need nothing: any phone or laptop connected to the YggMesh WiFi gets the Internet over IPv4, any protocol (TCP, UDP, QUIC, ping).
