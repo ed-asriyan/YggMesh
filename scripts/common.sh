@@ -72,9 +72,9 @@ validate_inputs() {
         if [ -n "$CLEARNET_EXITS" ]; then CLEARNET_MODE=exit; else CLEARNET_MODE=wan; fi
     fi
     case "$CLEARNET_MODE" in
-        off|wan|exit) ;;
+        off|wan|wan_exit|exit) ;;
         *)
-            echo "Error: Invalid CLEARNET_MODE: '$CLEARNET_MODE'. Must be off, wan or exit." >&2
+            echo "Error: Invalid CLEARNET_MODE: '$CLEARNET_MODE'. Must be off, wan, wan_exit or exit." >&2
             exit 1
             ;;
     esac

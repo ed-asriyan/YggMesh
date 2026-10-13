@@ -128,8 +128,8 @@ read_settings() {
     done
 
     case "$MODE" in
-        off|wan|exit) ;;
-        *) fail "clearnet.mode '$MODE' is not off, wan or exit" ;;
+        off|wan|wan_exit|exit) ;;
+        *) fail "clearnet.mode '$MODE' is not off, wan, wan_exit or exit" ;;
     esac
     for e in $EXITS; do
         valid_exit "$e" || fail "clearnet.exit '$e' is not a Yggdrasil address (200::/8) or a domain name"
@@ -401,9 +401,10 @@ build_firewall() {
 
     # Clients have Yggdrasil IPv6 addresses only: their IPv6 may reach
     # Yggdrasil and nothing else. Their IPv4 goes by the clearnet mode:
-    # directly to WAN, through the exits only (never to WAN), or nowhere.
+    # directly to WAN, through the exits only (never to WAN), to WAN while it
+    # works and to the exits otherwise (yggmesh-clearnet picks), or nowhere.
     case "$MODE" in
-        wan)
+        wan|wan_exit)
             uci batch <<-FW_WAN_EOF
 		set firewall.fwd_lan_wan=forwarding
 		set firewall.fwd_lan_wan.src='lan'
@@ -411,7 +412,9 @@ build_firewall() {
 		set firewall.fwd_lan_wan.family='ipv4'
 		FW_WAN_EOF
             ;;
-        exit)
+    esac
+    case "$MODE" in
+        exit|wan_exit)
             # Client IPv4 -> CLAT (tayga, run by yggmesh-clearnet) -> exit NAT64
             uci batch <<-FW_CLEARNET_EOF
 		# Zone clearnet: the CLAT tun device created by yggmesh-clearnet
@@ -485,11 +488,11 @@ build_dhcp() {
         uci add_list dhcp.@dnsmasq[0].server="/ygg/$d"
         uci add_list dhcp.private.dns="$d"
     done
-    # In the exit mode yggmesh-clearnet also points dnsmasq at 1.1.1.1 and
-    # 8.8.8.8 through the active exit (servers-file, re-read on SIGHUP), so
-    # nodes without WAN resolve clearnet names. The plain servers stay: the
-    # node itself needs them over WAN to find its Yggdrasil peers.
-    if [ "$MODE" = "exit" ]; then
+    # With exits yggmesh-clearnet also points dnsmasq at 1.1.1.1 and 8.8.8.8
+    # through the active exit (servers-file, re-read on SIGHUP), so nodes
+    # without WAN resolve clearnet names. The plain servers stay: the node
+    # itself needs them over WAN to find its Yggdrasil peers.
+    if [ "$MODE" = "exit" ] || [ "$MODE" = "wan_exit" ]; then
         mkdir -p "${DNS_FILE%/*}"
         touch "$DNS_FILE"
         uci set dhcp.@dnsmasq[0].serversfile="$DNS_FILE"
@@ -529,7 +532,7 @@ apply() {
 
     /etc/init.d/cron enable
     /etc/init.d/yggmesh enable
-    if [ "$MODE" = "exit" ] && [ -n "$EXITS" ]; then
+    if { [ "$MODE" = "exit" ] || [ "$MODE" = "wan_exit" ]; } && [ -n "$EXITS" ]; then
         /etc/init.d/yggmesh-clearnet enable
     else
         /etc/init.d/yggmesh-clearnet disable

@@ -43,7 +43,7 @@ on:
         default: ""
         type: string
       clearnet_mode:
-        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN) or off. auto: exit when clearnet_exits is set, wan otherwise."
+        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. auto: exit when clearnet_exits is set, wan otherwise."
         required: false
         default: auto
         type: string
@@ -98,7 +98,7 @@ on:
         default: ""
         type: string
       clearnet_mode:
-        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN) or off. auto: exit when clearnet_exits is set, wan otherwise."
+        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. auto: exit when clearnet_exits is set, wan otherwise."
         required: false
         default: auto
         type: choice
@@ -106,6 +106,7 @@ on:
           - auto
           - wan
           - exit
+          - wan_exit
           - "off"
 
 permissions:

@@ -65,7 +65,7 @@ Everything a node owner may change lives in one file, `/etc/config/yggmesh`, and
 | `wifi` | `ssid`; `encryption`: `none`, `psk2` (WPA2), `sae` (WPA3) or `sae-mixed` (WPA2/WPA3); `key` (8-63 characters) |
 | `yggdrasil` | `private_key` (defines the node address); `port` (multicast peering); `dns` (list of DNS resolvers reachable over Yggdrasil, used for `.ygg`) |
 | `discovery` | `instance` (list of [yggpeers](https://gitfield.org/fsky/yggpeers) URLs, none: no public peers discovery); `count`; `check_interval` (minutes); `rerank_interval` (days) |
-| `clearnet` | `mode`: `wan`, `exit` or `off` (see [Clearnet Access](#2-connecting-to-global-clearnet-the-internet)); `exit` (list of exits) |
+| `clearnet` | `mode`: `wan`, `exit`, `wan_exit` or `off` (see [Clearnet Access](#2-connecting-to-global-clearnet-the-internet)); `exit` (list of exits) |
 
 The build inputs are only the defaults of a fresh install. The rest of the node configuration (network, WiFi, firewall, DNS) is built from this file every time it changes: change the settings here, not on the other LuCI pages or in the other configs, where YggMesh overwrites them. For example, over SSH:
 ```sh
@@ -98,7 +98,7 @@ Fork this repository, then go to **Actions → Build Firmware → Run workflow**
 | `yggpeers_count` | Target number (1-10, default `3`) of global Yggdrasil peers per node with internet on WAN. Peers configured manually count towards this number. |
 | `yggpeers_check_interval` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380, default `30`). Peers that are down are replaced at the next check. |
 | `clearnet_exits` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](#transparent-clearnet-through-exit-nodes); the fastest working one is used. |
-| `clearnet_mode` | What clients' IPv4 traffic uses: `wan` (directly), `exit` (only the exits, **never** WAN) or `off`. `auto` (default): `exit` when `clearnet_exits` is set, `wan` otherwise. |
+| `clearnet_mode` | What clients' IPv4 traffic uses: `wan` (directly), `exit` (only the exits, **never** WAN), `wan_exit` (WAN while it works, the exits otherwise) or `off`. `auto` (default): `exit` when `clearnet_exits` is set, `wan` otherwise. |
 
 The inputs are the [settings](#settings) of a freshly installed node; every node can change them later.
 
@@ -138,7 +138,7 @@ The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target)
 | `YGGPEERS_COUNT` | Target number (1-10) of global Yggdrasil peers per node with internet on WAN. Manually configured peers count towards this number. |
 | `YGGPEERS_CHECK_INTERVAL` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380). |
 | `CLEARNET_EXITS` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](#transparent-clearnet-through-exit-nodes); the fastest working one is used. Can be empty. |
-| `CLEARNET_MODE` | Optional: `wan`, `exit`, `off` or `auto` (default: `exit` with exits, `wan` without). |
+| `CLEARNET_MODE` | Optional: `wan`, `exit`, `wan_exit`, `off` or `auto` (default: `exit` with exits, `wan` without). |
 
 ## Verification
 To verify the mesh is working correctly, set up a 3-node linear test (A → B → C).
@@ -199,6 +199,7 @@ How it works ([464XLAT](https://datatracker.ietf.org/doc/rfc6877/), no tunnels a
 Clearnet modes (`yggmesh.clearnet.mode`):
 - `wan`: clients' IPv4 goes directly to WAN. Nodes without WAN give no clearnet.
 - `exit`: clients' IPv4 goes through the exits only, as described below.
+- `wan_exit`: clients' IPv4 goes directly to WAN while WAN works, and through the exits otherwise. The node checks WAN every 30 seconds (an HTTP request to 1.1.1.1 from the node itself): it switches to the exits after 3 failed checks, or at once when WAN has no default route, and back after 2 good checks. Convenient, but sites see the WAN IP of the node while WAN works.
 - `off`: clients have no clearnet at all, only Yggdrasil.
 
 Rules of the `exit` mode:

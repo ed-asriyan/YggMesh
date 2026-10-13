@@ -4,8 +4,9 @@
 #
 # In the exit clearnet mode (yggmesh.clearnet.mode, exits in
 # yggmesh.clearnet.exit) every IPv4 packet from the Wi-Fi clients goes to one
-# of the exits, never to WAN. The node is the CLAT, the exit is the NAT64
-# (see yggdrasil-clearnet-proxy):
+# of the exits, never to WAN. In the wan_exit mode the clients use WAN while
+# it works and the exits otherwise. The node is the CLAT, the exit is the
+# NAT64 (see yggdrasil-clearnet-proxy):
 #
 #   client 10.0.0.x --NAT44--> 192.0.0.1 --tayga--> fd64::2 --NAT66--> 200:<node>
 #     --Yggdrasil--> <exit /64>::a.b.c.d --exit NAT64--> a.b.c.d
@@ -45,6 +46,14 @@
 #     routing table holds an unreachable route and the firewall has no
 #     LAN -> WAN forwarding in this mode.
 #
+# WAN in the wan_exit mode. WAN is checked the same way, every CHECK_INTERVAL
+# seconds, with requests from the node itself (main routing table). While it
+# works, a policy rule in front of the client table sends the client IPv4 to
+# the main table, i.e. the WAN default route, with the firewall forwarding
+# LAN -> WAN. WAN is dropped after FAIL_LIMIT failed checks in a row, or at
+# once when it has no default route; it is used again after WAN_UP_LIMIT good
+# checks. The exits are checked all the time, so the failover is immediate.
+#
 # DNS: dnsmasq also queries 1.1.1.1 and 8.8.8.8 through the active exit, so
 # nodes without WAN resolve clearnet names. Those servers are written to
 # DNS_FILE (dnsmasq --servers-file, re-read on SIGHUP) when the active exit
@@ -62,6 +71,7 @@ CLAT_TAYGA6="fd64::1"
 CLAT_USER6="fd64::2"
 TABLE=64                 # routing table of the client IPv4 traffic
 RULE_PRIO=6400
+WAN_PRIO=6399            # wan_exit: the client IPv4 uses the main table first
 CLIENT_DEV="br-private"
 CONF="/var/etc/yggmesh-clearnet-tayga.conf"
 PIDFILE="/var/run/yggmesh-clearnet-tayga.pid"
@@ -72,6 +82,7 @@ RETURN_LIMIT=10
 SWITCH_PCT=70
 SWITCH_MS=30
 RESOLVE_INTERVAL=600
+WAN_UP_LIMIT=2
 
 log() {
     logger -t "$TAG" "$*"
@@ -177,6 +188,7 @@ setup() {
     ip -4 addr replace "${CLAT_HOST4}/29" dev "$CLAT_DEV"
     ip -6 route replace "$CLAT_NET6" dev "$CLAT_DEV"
     ip -4 rule del priority "$RULE_PRIO" 2>/dev/null
+    ip -4 rule del priority "$WAN_PRIO" 2>/dev/null
     ip -4 rule add iif "$CLIENT_DEV" lookup "$TABLE" priority "$RULE_PRIO"
     route_block
 }
@@ -214,6 +226,45 @@ check() {
         fi
     done
     return 1
+}
+
+# Checks WAN: an HTTP answer from 1.1.1.1 or 8.8.8.8 sent by the node itself.
+# Returns 2 without a default route (nothing to wait for), 1 on failure.
+check_wan() {
+    local ip
+    [ -n "$(ip -4 route show default)" ] || return 2
+    for ip in 1.1.1.1 8.8.8.8; do
+        curl -s -o /dev/null --connect-timeout 5 --max-time 10 "http://${ip}/" && return 0
+    done
+    return 1
+}
+
+# wan_exit: sends the client IPv4 to WAN ($1 = 1) or to the exits ($1 = 0)
+wan_use() {
+    ip -4 rule del priority "$WAN_PRIO" 2>/dev/null
+    if [ "$1" = 1 ]; then
+        ip -4 rule add iif "$CLIENT_DEV" lookup main priority "$WAN_PRIO"
+        log "WAN works, clients use it directly"
+    else
+        log "WAN does not work, clients use the exits"
+    fi
+    wan_up=$1
+}
+
+# wan_exit: one WAN check and the switch it calls for
+update_wan() {
+    local r
+    check_wan
+    r=$?
+    if [ "$r" -eq 0 ]; then
+        wan_fails=0 wan_streak=$((wan_streak + 1))
+        [ "$wan_up" = 1 ] || [ "$wan_streak" -lt "$WAN_UP_LIMIT" ] || wan_use 1
+    else
+        wan_fails=$((wan_fails + 1)) wan_streak=0
+        if [ "$wan_up" = 1 ] && { [ "$r" -eq 2 ] || [ "$wan_fails" -ge "$FAIL_LIMIT" ]; }; then
+            wan_use 0
+        fi
+    fi
 }
 
 # Resolves the domain names among the exits. $1 = 1: all of them (periodic
@@ -255,12 +306,13 @@ shutdown() {
     exit 0
 }
 
-# Removes everything setup() and activate() created: the service was stopped
-# for good (another clearnet mode). In the exit mode client IPv4 still has no
-# way out: the firewall has no LAN -> WAN forwarding then.
+# Removes everything setup(), activate() and wan_use() created: the service
+# was stopped for good (another clearnet mode). In the exit mode client IPv4
+# still has no way out: the firewall has no LAN -> WAN forwarding then.
 cleanup() {
     tayga_stop
     ip -4 rule del priority "$RULE_PRIO" 2>/dev/null
+    ip -4 rule del priority "$WAN_PRIO" 2>/dev/null
     ip -4 route flush table "$TABLE" 2>/dev/null
     ip link del "$CLAT_DEV" 2>/dev/null
     if [ -s "$DNS_FILE" ]; then
@@ -304,14 +356,23 @@ fastest() {
 }
 
 run() {
-    local exits e i p now last_resolve=0 ar br ok
-    active=0 fails=0 n=0
+    local exits e i p now last_resolve=0 ar br ok mode
+    active=0 fails=0 n=0 wan_up=0 wan_fails=0 wan_streak=0
 
+    mode=$(uci -q get yggmesh.clearnet.mode)
     exits=$(uci -q get yggmesh.clearnet.exit)
     [ -n "$exits" ] || { log "No exits configured"; exit 0; }
 
     trap shutdown INT TERM
     setup
+    # A working WAN is used at once, a failed one is not waited for
+    if [ "$mode" = "wan_exit" ]; then
+        if check_wan; then
+            wan_use 1
+        else
+            wan_use 0
+        fi
+    fi
 
     # exit_N is the configured address or name, addr_N/prefix_N are filled
     # right away for addresses and by resolve_exits for names
@@ -339,6 +400,7 @@ run() {
         fi
 
         check_all
+        [ "$mode" = "wan_exit" ] && update_wan
 
         if [ "$active" -gt 0 ]; then
             eval "ok=\$ok_$active"

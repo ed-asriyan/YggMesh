@@ -14,7 +14,7 @@
 #   YGGPEERS_COUNT         Target number of global peers per node with internet on WAN (1-10)
 #   YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380
 #   CLEARNET_EXITS         Space-separated Yggdrasil addresses or domain names of clearnet exits (can be empty)
-#   CLEARNET_MODE          Clients' IPv4: off, wan, exit or auto (optional, default auto: exit with exits, wan without)
+#   CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit, exit or auto (optional, default auto: exit with exits, wan without)
 #
 # These are the defaults of the user settings on a fresh install; flashing
 # with kept settings keeps the node's own ones.
@@ -108,7 +108,7 @@ usage() {
     echo "  YGGPEERS_COUNT         Target number of global peers per node (1-10)"
     echo "  YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380"
     echo "  CLEARNET_EXITS         Space-separated Yggdrasil addresses or domain names of clearnet exits (can be empty)"
-    echo "  CLEARNET_MODE          Clients' IPv4: off, wan, exit or auto (optional, default auto: exit with exits, wan without)"
+    echo "  CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit, exit or auto (optional, default auto: exit with exits, wan without)"
     exit 1
 }
 
