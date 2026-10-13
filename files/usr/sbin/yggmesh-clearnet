@@ -25,17 +25,23 @@
 #   yggmesh-clearnet run          monitor loop, started by /etc/init.d/yggmesh-clearnet
 #   yggmesh-clearnet prefix ADDR  print the NAT64 prefix of exit ADDR, e.g. 300:1:2:3::
 #
-# Exit selection (one check every CHECK_INTERVAL seconds):
-#   - the exits are tried in the configured order; the first healthy one is used;
-#   - the active exit is dropped after FAIL_LIMIT failed checks in a row;
-#   - an exit listed before the active one takes over again after RETURN_LIMIT
-#     successful checks in a row, so a flapping exit does not bounce clients;
+# Exit selection. Every CHECK_INTERVAL seconds every exit is checked: an HTTP
+# request to 1.1.1.1 or 8.8.8.8 through the exit's NAT64 prefix, sent natively
+# over Yggdrasil from the node address. It covers the Yggdrasil path, the
+# exit's allow list, its NAT64 and its internet access, and its TCP handshake
+# time is the exit's latency (smoothed: rtt = (3 * rtt + sample) / 4).
+#   - without an active exit the fastest healthy one is used (the configured
+#     order only breaks ties);
+#   - the active exit is kept while it works: switching changes the public IP
+#     and breaks running connections. It is dropped after FAIL_LIMIT failed
+#     checks in a row;
+#   - another exit takes over only when it has been healthy for RETURN_LIMIT
+#     checks in a row and is clearly faster: below SWITCH_PCT % of the active
+#     exit's latency and at least SWITCH_MS ms faster. Noise does not bounce
+#     clients between exits;
 #   - without a healthy exit clients have no clearnet at all: the client
 #     routing table holds an unreachable route and the firewall has no
 #     LAN -> WAN forwarding in this mode.
-# A check is an HTTP request to 1.1.1.1 or 8.8.8.8 through the exit's NAT64
-# prefix, sent natively over Yggdrasil from the node address. It covers the
-# Yggdrasil path, the exit's allow list, its NAT64 and its internet access.
 #
 # DNS: dnsmasq also queries 1.1.1.1 and 8.8.8.8 through the active exit, so
 # nodes without WAN resolve clearnet names. Those servers are written to
@@ -61,6 +67,8 @@ DNS_FILE="/etc/yggmesh/clearnet-dns.conf"
 CHECK_INTERVAL=30
 FAIL_LIMIT=3
 RETURN_LIMIT=10
+SWITCH_PCT=70
+SWITCH_MS=30
 RESOLVE_INTERVAL=600
 
 log() {
@@ -175,18 +183,15 @@ setup() {
 # the client IPv4 into it and moves the DNS servers there. Running
 # connections break, as the public IPv4 address changes anyway.
 activate() {
-    local e a p
-    eval "e=\$exit_$1 a=\$addr_$1 p=\$prefix_$1"
+    local e a p r
+    eval "e=\$exit_$1 a=\$addr_$1 p=\$prefix_$1 r=\$rtt_$1"
     tayga_stop
     write_conf "$p"
     tayga -n -c "$CONF" -p "$PIDFILE" >/dev/null 2>&1 &
     ip -4 route replace default dev "$CLAT_DEV" table "$TABLE"
     write_dns "$p"
-    if [ "$e" = "$a" ]; then
-        log "Using exit $e (NAT64 prefix ${p}/96)"
-    else
-        log "Using exit $e = $a (NAT64 prefix ${p}/96)"
-    fi
+    [ "$e" = "$a" ] || e="$e = $a"
+    log "Using exit $e (NAT64 prefix ${p}/96, ${r:-?} ms)"
 }
 
 deactivate() {
@@ -195,13 +200,18 @@ deactivate() {
     active=0
 }
 
-# Returns 0 if exit prefix $1 forwards to the internet: an HTTP answer from
-# 1.1.1.1 or 8.8.8.8 (any status) through it.
+# Checks exit prefix $1: an HTTP answer (any status) from 1.1.1.1 or 8.8.8.8
+# through it. On success prints the TCP handshake time in ms and returns 0.
 check() {
-    local p="$1"
+    local p="$1" t ip
     [ -n "$p" ] || return 1
-    curl -s -o /dev/null --connect-timeout 5 --max-time 10 "http://[${p}101:101]/" && return 0
-    curl -s -o /dev/null --connect-timeout 5 --max-time 10 "http://[${p}808:808]/"
+    for ip in 101:101 808:808; do
+        if t=$(curl -s -o /dev/null -w '%{time_connect}' --connect-timeout 5 --max-time 10 "http://[${p}${ip}]/"); then
+            echo "$t" | awk '{ printf "%d\n", $1 * 1000 + 0.5 }'
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Resolves the domain names among the exits. $1 = 1: all of them (periodic
@@ -224,7 +234,7 @@ resolve_exits() {
             elif [ "$a" != "$old" ]; then
                 eval "warned_$i=''"
                 log "Exit $e resolves to $a"
-                eval "addr_$i=\$a prefix_$i=\$(exit_prefix \"\$a\") streak_$i=0"
+                eval "addr_$i=\$a prefix_$i=\$(exit_prefix \"\$a\") streak_$i=0 rtt_$i=''"
                 if [ "$i" = "$active" ]; then
                     fails=0
                     activate "$i"
@@ -242,8 +252,41 @@ shutdown() {
     exit 0
 }
 
+# Checks every exit once: ok_N (1/0), streak_N (successful checks in a row)
+# and rtt_N (smoothed latency in ms, kept while an exit fails)
+check_all() {
+    local i p t r streak
+    i=1
+    while [ "$i" -le "$n" ]; do
+        eval "p=\$prefix_$i r=\$rtt_$i streak=\$streak_$i"
+        if t=$(check "$p"); then
+            [ -n "$r" ] && t=$(((3 * r + t) / 4))
+            eval "ok_$i=1 rtt_$i=\$t streak_$i=$((streak + 1))"
+        else
+            eval "ok_$i=0 streak_$i=0"
+        fi
+        i=$((i + 1))
+    done
+}
+
+# Prints the number of the fastest healthy exit other than $1 with at least
+# $2 successful checks in a row, or 0. Ties go to the configured order.
+fastest() {
+    local i best=0 bestr=0 ok r streak
+    i=1
+    while [ "$i" -le "$n" ]; do
+        eval "ok=\$ok_$i r=\$rtt_$i streak=\$streak_$i"
+        if [ "$i" != "$1" ] && [ "$ok" = 1 ] && [ "$streak" -ge "$2" ] \
+            && { [ "$best" -eq 0 ] || [ "$r" -lt "$bestr" ]; }; then
+            best=$i bestr=$r
+        fi
+        i=$((i + 1))
+    done
+    echo "$best"
+}
+
 run() {
-    local exits e i p streak now last_resolve=0
+    local exits e i p now last_resolve=0 ar br ok
     active=0 fails=0 n=0
 
     exits=$(uci -q get yggmesh.clearnet.exit)
@@ -258,10 +301,11 @@ run() {
         n=$((n + 1))
         p=$(exit_prefix "$e")
         if [ -n "$p" ]; then
-            eval "exit_$n=\$e addr_$n=\$e prefix_$n=\$p streak_$n=0"
+            eval "exit_$n=\$e addr_$n=\$e prefix_$n=\$p"
         else
-            eval "exit_$n=\$e addr_$n='' prefix_$n='' streak_$n=0"
+            eval "exit_$n=\$e addr_$n='' prefix_$n=''"
         fi
+        eval "ok_$n=0 streak_$n=0 rtt_$n=''"
     done
     log "Clearnet through $n exit(s): $exits"
 
@@ -276,9 +320,11 @@ run() {
             resolve_exits 0
         fi
 
+        check_all
+
         if [ "$active" -gt 0 ]; then
-            eval "p=\$prefix_$active"
-            if check "$p" && tayga_running; then
+            eval "ok=\$ok_$active"
+            if [ "$ok" = 1 ] && tayga_running; then
                 fails=0
             else
                 fails=$((fails + 1))
@@ -290,36 +336,22 @@ run() {
         fi
 
         if [ "$active" -eq 0 ]; then
-            i=1
-            while [ "$i" -le "$n" ]; do
-                eval "p=\$prefix_$i"
-                if check "$p"; then
-                    active=$i fails=0
-                    activate "$i"
-                    break
-                fi
-                i=$((i + 1))
-            done
+            i=$(fastest 0 1)
+            if [ "$i" -gt 0 ]; then
+                active=$i fails=0
+                activate "$i"
+            fi
         else
-            # Preferred exits come back only after a stable streak
-            i=1
-            while [ "$i" -lt "$active" ]; do
-                eval "p=\$prefix_$i streak=\$streak_$i"
-                if check "$p"; then
-                    streak=$((streak + 1))
-                else
-                    streak=0
-                fi
-                eval "streak_$i=\$streak"
-                if [ "$streak" -ge "$RETURN_LIMIT" ]; then
-                    eval "log \"Exit \$exit_$i is stable again, switching back\""
+            i=$(fastest "$active" "$RETURN_LIMIT")
+            if [ "$i" -gt 0 ]; then
+                eval "ar=\$rtt_$active br=\$rtt_$i"
+                if [ -n "$ar" ] && [ $((br * 100)) -lt $((ar * SWITCH_PCT)) ] \
+                    && [ $((ar - br)) -ge "$SWITCH_MS" ]; then
+                    eval "log \"Exit \$exit_$i is faster (\$br ms vs \$ar ms), switching\""
                     active=$i fails=0
-                    eval "streak_$i=0"
                     activate "$i"
-                    break
                 fi
-                i=$((i + 1))
-            done
+            fi
         fi
 
         # Background sleep, so that TERM is handled at once

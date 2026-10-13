@@ -76,7 +76,7 @@ Fork this repository, then go to **Actions → Build Firmware → Run workflow**
 | `yggpeers_instances` | Space-separated base URLs of [yggpeers instances](https://gitfield.org/fsky/yggpeers) used to auto-discover public Yggdrasil peers. A peer is used only if a majority of the reachable instances report it as up. Leave empty to disable public peers discovery and rely only on multicast discovery. |
 | `yggpeers_count` | Target number (1-10, default `3`) of global Yggdrasil peers per node with internet on WAN. Peers configured manually count towards this number. |
 | `yggpeers_check_interval` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380, default `30`). Peers that are down are replaced at the next check. |
-| `clearnet_exits` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](#transparent-clearnet-through-exit-nodes), in order of preference. When set, all clients' IPv4 traffic goes through the first healthy exit and **never** directly to WAN. Leave empty for direct WAN access. |
+| `clearnet_exits` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](#transparent-clearnet-through-exit-nodes); the fastest working one is used. When set, all clients' IPv4 traffic goes through an exit and **never** directly to WAN. Leave empty for direct WAN access. |
 
 To trigger a release build for all devices at once, push a git tag (e.g. `v1.0.0`). Firmware for all supported devices will be built and attached to a GitHub Release automatically.
 
@@ -114,7 +114,7 @@ The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target)
 | `YGGPEERS_INSTANCES` | Space-separated base URLs of [yggpeers](https://gitfield.org/fsky/yggpeers) instances used to auto-discover public peers. Can be empty to disable auto-discovery. |
 | `YGGPEERS_COUNT` | Target number (1-10) of global Yggdrasil peers per node with internet on WAN. Manually configured peers count towards this number. |
 | `YGGPEERS_CHECK_INTERVAL` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380). |
-| `CLEARNET_EXITS` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](#transparent-clearnet-through-exit-nodes), in order of preference. Can be empty for direct WAN access. |
+| `CLEARNET_EXITS` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](#transparent-clearnet-through-exit-nodes); the fastest working one is used. Can be empty for direct WAN access. |
 
 ## Verification
 To verify the mesh is working correctly, set up a 3-node linear test (A → B → C).
@@ -175,7 +175,7 @@ How it works ([464XLAT](https://datatracker.ietf.org/doc/rfc6877/), no tunnels a
 Rules:
 - **All** clients' IPv4 traffic goes through the exits, even on nodes with internet on WAN: your IP is never used for clients' traffic. If no exit works, clients have no clearnet at all. The node itself still uses WAN to reach its global Yggdrasil peers.
 - Clients' IPv6 traffic may reach Yggdrasil addresses only. Clearnet IPv6 is not provided; dual-stack sites work over IPv4.
-- The exits are used in the configured order. Every node checks them every 30 seconds: the active exit is replaced after 3 failed checks, and an exit listed earlier takes over again after 5 minutes of successful checks. Switching exits breaks open connections, as the public IP changes.
+- Every node checks all exits every 30 seconds and measures their latency: the TCP handshake time to 1.1.1.1 through each exit, i.e. the Mesh, Yggdrasil and the exit's own internet together. The fastest working exit is used; the configured order only breaks ties. The active exit is kept while it works, because switching exits changes the public IP and breaks open connections: it is replaced after 3 failed checks, or when another exit has worked for 5 minutes and is clearly faster (under 70% of the latency and at least 30 ms faster).
 - Domain names are resolved by the node through its own DNS (`.ygg` goes to the `yggdrasil_dns` resolvers, so set them for `.ygg` exits), re-resolved every 10 minutes and on every check while no exit works. When the address of a name changes, the node follows it. Whoever controls the DNS record decides which exit your clients use.
 - An exit may allow only some nodes. Give its owner the Yggdrasil address of **every** node that should use it: the address starting with `2` shown by `ip -6 addr show dev yggdrasil` on the node (or in LuCI → Network → Interfaces → yggdrasil). The address changes when a node is flashed again.
 - Known limitations: on nodes with internet on WAN some DNS queries of the clients may still go through WAN; pings larger than 1260 bytes do not pass the translation (regular pings, TCP and UDP of any size do).
