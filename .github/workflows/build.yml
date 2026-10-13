@@ -38,9 +38,14 @@ on:
         default: YggMesh
         type: string
       clearnet_exits:
-        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). When set, all client IPv4 goes through the fastest working exit and never directly to WAN. Leave empty for direct WAN access.
+        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). The fastest working one is used.
         required: false
         default: ""
+        type: string
+      clearnet_mode:
+        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN) or off. auto: exit when clearnet_exits is set, wan otherwise."
+        required: false
+        default: auto
         type: string
   workflow_dispatch:
     inputs:
@@ -88,10 +93,20 @@ on:
         default: YggMesh
         type: string
       clearnet_exits:
-        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). When set, all client IPv4 goes through the fastest working exit and never directly to WAN. Leave empty for direct WAN access.
+        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). The fastest working one is used.
         required: false
         default: ""
         type: string
+      clearnet_mode:
+        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN) or off. auto: exit when clearnet_exits is set, wan otherwise."
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - wan
+          - exit
+          - "off"
 
 permissions:
   contents: read
@@ -119,7 +134,7 @@ jobs:
           YGGPEERS_CHECK_INTERVAL: ${{ inputs.yggpeers_check_interval || '30' }}
           PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
           CLEARNET_EXITS: ${{ inputs.clearnet_exits }}
-          MESH_ID: "yggmesh/mesh"
+          CLEARNET_MODE: ${{ inputs.clearnet_mode }}
           YGG_PORT: "17000"
         run: |
           chmod +x scripts/build_router.sh

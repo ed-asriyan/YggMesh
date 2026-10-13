@@ -59,13 +59,25 @@ validate_inputs() {
     # :? fails if unset or empty; ? fails only if unset (empty string is allowed).
     : "${DEFAULT_ROOT_PASSWORD:?DEFAULT_ROOT_PASSWORD must not be empty}"
     : "${PRIVATE_SSID:?PRIVATE_SSID must not be empty}"
-    : "${MESH_ID:?MESH_ID must not be empty}"
     : "${YGG_PORT:?YGG_PORT must not be empty}"
     : "${YGGDRASIL_DNS?YGGDRASIL_DNS must be set (can be empty)}"
     : "${YGGPEERS_INSTANCES?YGGPEERS_INSTANCES must be set (can be empty)}"
     : "${YGGPEERS_COUNT:?YGGPEERS_COUNT must not be empty}"
     : "${YGGPEERS_CHECK_INTERVAL:?YGGPEERS_CHECK_INTERVAL must not be empty}"
     : "${CLEARNET_EXITS?CLEARNET_EXITS must be set (can be empty)}"
+
+    # CLEARNET_MODE (optional): what clients' IPv4 uses. Empty or auto: the
+    # exits when there are any, WAN otherwise
+    if [ -z "${CLEARNET_MODE:-}" ] || [ "$CLEARNET_MODE" = "auto" ]; then
+        if [ -n "$CLEARNET_EXITS" ]; then CLEARNET_MODE=exit; else CLEARNET_MODE=wan; fi
+    fi
+    case "$CLEARNET_MODE" in
+        off|wan|exit) ;;
+        *)
+            echo "Error: Invalid CLEARNET_MODE: '$CLEARNET_MODE'. Must be off, wan or exit." >&2
+            exit 1
+            ;;
+    esac
 
     # Validate that YGG_PORT is a valid port number
     if ! [[ "$YGG_PORT" =~ ^[0-9]+$ ]] || [ "$YGG_PORT" -lt 1 ] || [ "$YGG_PORT" -gt 65535 ]; then
@@ -154,16 +166,17 @@ prepare_files_dir() {
     echo "$profile" > "$tmpfiles/etc/yggmesh/profile"
     echo "$port_map" > "$tmpfiles/etc/yggmesh/port_map"
 
-    # Bake build-time inputs into the firmware.
+    # Bake build-time inputs into the firmware: the defaults of the user
+    # settings on a fresh install (see files/usr/sbin/yggmesh-defaults).
     echo "$YGGDRASIL_DNS" > "$tmpfiles/etc/yggmesh/inputs/yggdrasil_dns"
     echo "$DEFAULT_ROOT_PASSWORD" > "$tmpfiles/etc/yggmesh/inputs/root_password"
     echo "$PRIVATE_SSID" > "$tmpfiles/etc/yggmesh/inputs/private_ssid"
-    echo "$MESH_ID" > "$tmpfiles/etc/yggmesh/inputs/mesh_id"
     echo "$YGG_PORT" > "$tmpfiles/etc/yggmesh/inputs/ygg_port"
     echo "$YGGPEERS_INSTANCES" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_instances"
     echo "$YGGPEERS_COUNT" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_count"
     echo "$YGGPEERS_CHECK_INTERVAL" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_check_interval"
     echo "$CLEARNET_EXITS" > "$tmpfiles/etc/yggmesh/inputs/clearnet_exits"
+    echo "$CLEARNET_MODE" > "$tmpfiles/etc/yggmesh/inputs/clearnet_mode"
 
     # Build timestamp: the device uses it as a clock sanity check before HTTPS requests.
     date +%s > "$tmpfiles/etc/yggmesh/build_epoch"

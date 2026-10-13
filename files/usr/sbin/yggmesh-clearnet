@@ -2,9 +2,10 @@
 # shellcheck disable=SC3043
 # YggMesh — clearnet access through Yggdrasil exit nodes (464XLAT).
 #
-# When exits are configured (yggmesh.clearnet.exit), every IPv4 packet from
-# the Wi-Fi clients goes to one of them, never to WAN. The node is the CLAT,
-# the exit is the NAT64 (see yggdrasil-clearnet-proxy):
+# In the exit clearnet mode (yggmesh.clearnet.mode, exits in
+# yggmesh.clearnet.exit) every IPv4 packet from the Wi-Fi clients goes to one
+# of the exits, never to WAN. The node is the CLAT, the exit is the NAT64
+# (see yggdrasil-clearnet-proxy):
 #
 #   client 10.0.0.x --NAT44--> 192.0.0.1 --tayga--> fd64::2 --NAT66--> 200:<node>
 #     --Yggdrasil--> <exit /64>::a.b.c.d --exit NAT64--> a.b.c.d
@@ -23,6 +24,7 @@
 #
 # Usage:
 #   yggmesh-clearnet run          monitor loop, started by /etc/init.d/yggmesh-clearnet
+#   yggmesh-clearnet cleanup      remove the CLAT and its routing, after the service stops
 #   yggmesh-clearnet prefix ADDR  print the NAT64 prefix of exit ADDR, e.g. 300:1:2:3::
 #
 # Exit selection. Every CHECK_INTERVAL seconds every exit is checked: an HTTP
@@ -245,11 +247,27 @@ resolve_exits() {
     done
 }
 
+# TERM: a restart or a stop. The routing stays until setup() of the next run
+# or cleanup() replaces it: without tayga the client IPv4 goes nowhere.
 shutdown() {
     tayga_stop
-    route_block
-    log "Stopped, clients have no clearnet access"
+    log "Stopped"
     exit 0
+}
+
+# Removes everything setup() and activate() created: the service was stopped
+# for good (another clearnet mode). In the exit mode client IPv4 still has no
+# way out: the firewall has no LAN -> WAN forwarding then.
+cleanup() {
+    tayga_stop
+    ip -4 rule del priority "$RULE_PRIO" 2>/dev/null
+    ip -4 route flush table "$TABLE" 2>/dev/null
+    ip link del "$CLAT_DEV" 2>/dev/null
+    if [ -s "$DNS_FILE" ]; then
+        : > "$DNS_FILE"
+        killall -HUP dnsmasq 2>/dev/null
+    fi
+    return 0
 }
 
 # Checks every exit once: ok_N (1/0), streak_N (successful checks in a row)
@@ -362,6 +380,7 @@ run() {
 
 case "$1" in
     run) run ;;
+    cleanup) cleanup ;;
     prefix) exit_prefix "$2" ;;
-    *) echo "Usage: $0 run | prefix <exit address>" >&2; exit 1 ;;
+    *) echo "Usage: $0 run | cleanup | prefix <exit address>" >&2; exit 1 ;;
 esac
