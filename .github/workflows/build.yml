@@ -37,6 +37,16 @@ on:
         required: false
         default: YggMesh
         type: string
+      clearnet_exits:
+        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). The fastest working one is used.
+        required: false
+        default: ""
+        type: string
+      clearnet_mode:
+        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. auto: exit when clearnet_exits is set, wan otherwise."
+        required: false
+        default: auto
+        type: string
   workflow_dispatch:
     inputs:
       device:
@@ -82,6 +92,22 @@ on:
         required: false
         default: YggMesh
         type: string
+      clearnet_exits:
+        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). The fastest working one is used.
+        required: false
+        default: ""
+        type: string
+      clearnet_mode:
+        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. auto: exit when clearnet_exits is set, wan otherwise."
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - wan
+          - exit
+          - wan_exit
+          - "off"
 
 permissions:
   contents: read
@@ -108,7 +134,8 @@ jobs:
           YGGPEERS_COUNT: ${{ inputs.yggpeers_count || '3' }}
           YGGPEERS_CHECK_INTERVAL: ${{ inputs.yggpeers_check_interval || '30' }}
           PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
-          MESH_ID: "yggmesh/mesh"
+          CLEARNET_EXITS: ${{ inputs.clearnet_exits }}
+          CLEARNET_MODE: ${{ inputs.clearnet_mode }}
           YGG_PORT: "17000"
         run: |
           chmod +x scripts/build_router.sh

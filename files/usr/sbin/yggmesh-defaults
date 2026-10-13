@@ -1,0 +1,194 @@
+#!/bin/sh
+# shellcheck disable=SC3043
+# YggMesh — the user settings: firmware defaults and migrations.
+#
+# /etc/config/yggmesh holds everything the user may change, and nothing else:
+# the YggMesh page in LuCI edits only this file, and yggmesh-apply derives the
+# rest of the system configuration from it. The file is kept when the firmware
+# is flashed with "Keep settings", so the settings move from one firmware
+# version to the next.
+#
+# This script fills it in. It runs once after every flash, before
+# yggmesh-apply (see /etc/uci-defaults/99-yggmesh):
+#   - fresh install: every option is set from the firmware defaults, the build
+#     inputs in /etc/yggmesh/inputs; a new Yggdrasil key is generated;
+#   - flash with kept settings: the user's values stay as they are and only
+#     the migrations up to SCHEMA run. Defaults are never put over existing
+#     settings, so an option the user emptied (e.g. no exits) stays empty;
+#   - flash with kept settings over a firmware from before this file existed
+#     (schema 0): the settings are imported from the configs that firmware
+#     generated, so the Yggdrasil key (the node address) and the SSID survive.
+#
+# Schema 1:
+#   config meta 'meta'
+#       option schema           1
+#   config wifi 'wifi'              client access point
+#       option ssid             1-32 bytes
+#       option encryption       none | psk2 (WPA2) | sae (WPA3) | sae-mixed (WPA2/WPA3)
+#       option key              8-63 characters, unless encryption is none
+#   config yggdrasil 'yggdrasil'
+#       option private_key      128 hex digits, defines the node address
+#       option port             multicast peering port, 1-65535
+#       list dns                DNS resolvers reachable over Yggdrasil, used for .ygg
+#   config discovery 'discovery'    public peers, see yggmesh-fetch-peers
+#       list instance           yggpeers base URLs, none: discovery is off
+#       option count            1-10
+#       option check_interval   minutes: 1-59 or a multiple of 60 up to 1380
+#       option rerank_interval  days, 1-90
+#   config clearnet 'clearnet'      clients' IPv4, see yggmesh-clearnet
+#       option mode             off | wan | wan_exit | exit
+#       list exit               Yggdrasil addresses (200::/8) or domain names
+
+SCHEMA=1
+INPUTS=/etc/yggmesh/inputs
+CONFIG=/etc/config/yggmesh
+
+log() {
+    logger -t yggmesh "$*"
+}
+
+# Prints the build input $1
+input() {
+    cat "$INPUTS/$1" 2>/dev/null
+}
+
+# Replaces the list option $1 with the words $2
+set_list() {
+    local v
+    uci -q delete "$1"
+    for v in $2; do
+        uci add_list "$1=$v"
+    done
+}
+
+# Prints a new Yggdrasil private key
+new_key() {
+    yggdrasil -genconf -json 2>/dev/null | jsonfilter -e '@.PrivateKey'
+}
+
+# Fresh install: settings from the build inputs, plus the system settings
+# that are set once and are the user's afterwards (hostname, root password)
+init_fresh() {
+    local mac iface attempt password exits
+
+    uci set yggmesh.wifi=wifi
+    uci set yggmesh.wifi.ssid="$(input private_ssid)"
+    uci set yggmesh.wifi.encryption='none'
+
+    uci set yggmesh.yggdrasil=yggdrasil
+    uci set yggmesh.yggdrasil.private_key="$(new_key)"
+    uci set yggmesh.yggdrasil.port="$(input ygg_port)"
+    set_list yggmesh.yggdrasil.dns "$(input yggdrasil_dns)"
+
+    uci set yggmesh.discovery=discovery
+    set_list yggmesh.discovery.instance "$(input yggpeers_instances)"
+    uci set yggmesh.discovery.count="$(input yggpeers_count)"
+    uci set yggmesh.discovery.check_interval="$(input yggpeers_check_interval)"
+    uci set yggmesh.discovery.rerank_interval='7'
+
+    exits=$(input clearnet_exits)
+    uci set yggmesh.clearnet=clearnet
+    uci set yggmesh.clearnet.mode="$(input clearnet_mode)"
+    set_list yggmesh.clearnet.exit "$exits"
+
+    # Hostname from the hardware MAC (some devices initialize NICs slowly at
+    # first boot), or a random locally administered one
+    mac=""
+    for attempt in 1 2 3 4 5; do
+        for iface in br-lan eth0 eth1 eth2; do
+            mac=$(cat "/sys/class/net/$iface/address" 2>/dev/null)
+            [ -n "$mac" ] && [ "$mac" != "00:00:00:00:00:00" ] && break 2
+            mac=""
+        done
+        [ "$attempt" -lt 5 ] && sleep 1
+    done
+    [ -n "$mac" ] || mac=$(hexdump -n 5 -e '/1 ":%02x"' /dev/urandom | sed 's/^:/02:/')
+
+    uci batch <<-SYS_EOF
+	set system.@system[0].hostname='YggMesh-$(echo "$mac" | awk -F: '{ print toupper($5 $6) }')'
+	set system.@system[0].timezone='UTC0'
+	set system.@system[0].zonename='UTC'
+	set system.@system[0].log_proto='udp'
+	set system.@system[0].conloglevel='7'
+	set system.@system[0].cronloglevel='9'
+	delete system.ntp.server
+	add_list system.ntp.server='0.openwrt.pool.ntp.org'
+	add_list system.ntp.server='1.openwrt.pool.ntp.org'
+	add_list system.ntp.server='2.openwrt.pool.ntp.org'
+	set system.ntp.enabled='1'
+	SYS_EOF
+    uci commit system
+
+    # The user should change it via LuCI or passwd
+    password=$(input root_password)
+    if [ -n "$password" ]; then
+        if printf '%s\n%s\n' "$password" "$password" | passwd root >/dev/null 2>&1; then
+            log "Default root password set"
+        else
+            log "Warning: failed to set default root password"
+        fi
+    fi
+}
+
+# Schema 0 -> 1: the firmware before this file kept the settings in the
+# configs it generated (the discovery and clearnet sections were already here)
+migrate_0() {
+    local ssid key port exits
+
+    ssid=$(uci -q get wireless.private_5g.ssid || uci -q get wireless.private_2g.ssid)
+    uci set yggmesh.wifi=wifi
+    uci set yggmesh.wifi.ssid="${ssid:-$(input private_ssid)}"
+    uci set yggmesh.wifi.encryption='none'
+
+    key=$(uci -q get network.yggdrasil.private_key)
+    port=$(uci -q get network.ygg_iface.port)
+    uci set yggmesh.yggdrasil=yggdrasil
+    uci set yggmesh.yggdrasil.private_key="${key:-$(new_key)}"
+    uci set yggmesh.yggdrasil.port="${port:-$(input ygg_port)}"
+    # The firmware advertised exactly the Yggdrasil DNS resolvers over RA
+    set_list yggmesh.yggdrasil.dns "$(uci -q get dhcp.private.dns)"
+
+    uci set yggmesh.discovery=discovery
+    [ -n "$(uci -q get yggmesh.discovery.count)" ] || uci set yggmesh.discovery.count="$(input yggpeers_count)"
+    [ -n "$(uci -q get yggmesh.discovery.check_interval)" ] || uci set yggmesh.discovery.check_interval="$(input yggpeers_check_interval)"
+    [ -n "$(uci -q get yggmesh.discovery.rerank_interval)" ] || uci set yggmesh.discovery.rerank_interval='7'
+
+    # Exits configured meant "always through the exits", none meant direct WAN
+    exits=$(uci -q get yggmesh.clearnet.exit)
+    uci set yggmesh.clearnet=clearnet
+    if [ -n "$exits" ]; then
+        uci set yggmesh.clearnet.mode='exit'
+    else
+        uci set yggmesh.clearnet.mode='wan'
+    fi
+}
+
+touch "$CONFIG"
+schema=$(uci -q get yggmesh.meta.schema)
+case "$schema" in
+    ''|*[!0-9]*) schema=0 ;;
+esac
+
+if [ "$schema" -eq 0 ]; then
+    if [ -n "$(uci -q get network.yggdrasil.private_key)" ]; then
+        log "Importing the settings of the previous firmware"
+        migrate_0
+    else
+        log "Fresh install, applying the firmware defaults"
+        init_fresh
+    fi
+elif [ "$schema" -gt "$SCHEMA" ]; then
+    # Settings from a newer firmware: kept as they are, unknown options are ignored
+    log "Warning: settings schema $schema is newer than this firmware ($SCHEMA)"
+fi
+# Future migrations: [ "$schema" -lt 2 ] && migrate_1, and so on
+
+[ "$schema" -lt "$SCHEMA" ] && {
+    uci set yggmesh.meta=meta
+    uci set yggmesh.meta.schema="$SCHEMA"
+}
+uci commit yggmesh
+
+# The build inputs hold the default root password, they are not needed anymore
+rm -rf "$INPUTS"
+exit 0
