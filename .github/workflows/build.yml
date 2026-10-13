@@ -32,20 +32,25 @@ on:
         required: false
         default: "30"
         type: string
+      yggpeers_rerank_interval:
+        description: Days between forced refreshes of the global peers list on a node (1-90), even if all current peers are alive.
+        required: false
+        default: "7"
+        type: string
       private_ssid:
         description: Client AP SSID for end-user devices
         required: false
         default: YggMesh
         type: string
       clearnet_exits:
-        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). The fastest working one is used.
+        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used.
         required: false
         default: ""
         type: string
       clearnet_mode:
-        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. auto: exit when clearnet_exits is set, wan otherwise."
+        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. Needs clearnet_exits for exit and wan_exit."
         required: false
-        default: auto
+        default: wan
         type: string
   workflow_dispatch:
     inputs:
@@ -87,23 +92,27 @@ on:
         required: false
         default: "30"
         type: string
+      yggpeers_rerank_interval:
+        description: Days between forced refreshes of the global peers list on a node (1-90), even if all current peers are alive.
+        required: false
+        default: "7"
+        type: string
       private_ssid:
         description: Client AP SSID for end-user devices
         required: false
         default: YggMesh
         type: string
       clearnet_exits:
-        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/yggdrasil-clearnet-proxy). The fastest working one is used.
+        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used.
         required: false
         default: ""
         type: string
       clearnet_mode:
-        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. auto: exit when clearnet_exits is set, wan otherwise."
+        description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. Needs clearnet_exits for exit and wan_exit."
         required: false
-        default: auto
+        default: wan
         type: choice
         options:
-          - auto
           - wan
           - exit
           - wan_exit
@@ -133,10 +142,10 @@ jobs:
           YGGPEERS_INSTANCES: ${{ inputs.yggpeers_instances }}
           YGGPEERS_COUNT: ${{ inputs.yggpeers_count || '3' }}
           YGGPEERS_CHECK_INTERVAL: ${{ inputs.yggpeers_check_interval || '30' }}
+          YGGPEERS_RERANK_INTERVAL: ${{ inputs.yggpeers_rerank_interval || '7' }}
           PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
           CLEARNET_EXITS: ${{ inputs.clearnet_exits }}
-          CLEARNET_MODE: ${{ inputs.clearnet_mode }}
-          YGG_PORT: "17000"
+          CLEARNET_MODE: ${{ inputs.clearnet_mode || 'wan' }}
         run: |
           chmod +x scripts/build_router.sh
           ./scripts/build_router.sh "${{ inputs.device }}"

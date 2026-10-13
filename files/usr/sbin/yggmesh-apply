@@ -39,6 +39,8 @@ DNS_FILE="/etc/yggmesh/clearnet-dns.conf"
 
 # 802.11s mesh identifier: every YggMesh node joins the same mesh
 MESH_ID="yggmesh/mesh"
+# Yggdrasil multicast peering port, the same on every YggMesh node
+YGG_PORT=17000
 # Router IPv4 address for the clients
 PRIV_IP="10.0.0.1"
 # All mesh nodes must share the 2.4 GHz channel, it cannot be "auto"
@@ -103,7 +105,6 @@ read_settings() {
     ENCRYPTION=$(uci -q get yggmesh.wifi.encryption)
     WIFI_KEY=$(uci -q get yggmesh.wifi.key)
     YGG_KEY=$(uci -q get yggmesh.yggdrasil.private_key | tr 'A-F' 'a-f')
-    YGG_PORT=$(uci -q get yggmesh.yggdrasil.port)
     YGG_DNS=$(uci -q get yggmesh.yggdrasil.dns)
     MODE=$(uci -q get yggmesh.clearnet.mode)
     EXITS=$(uci -q get yggmesh.clearnet.exit | tr 'A-Z' 'a-z')
@@ -122,7 +123,6 @@ read_settings() {
         *[!0-9a-f]*) fail "yggdrasil.private_key must be hexadecimal" ;;
     esac
     [ "${#YGG_KEY}" -eq 128 ] || fail "yggdrasil.private_key must be 128 hex digits"
-    in_range "$YGG_PORT" 1 65535 || fail "yggdrasil.port '$YGG_PORT' is not 1-65535"
     for d in $YGG_DNS; do
         is_ipv6 "$d" || fail "yggdrasil.dns '$d' is not an IPv6 address"
     done

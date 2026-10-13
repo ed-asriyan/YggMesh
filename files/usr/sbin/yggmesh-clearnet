@@ -6,7 +6,7 @@
 # yggmesh.clearnet.exit) every IPv4 packet from the Wi-Fi clients goes to one
 # of the exits, never to WAN. In the wan_exit mode the clients use WAN while
 # it works and the exits otherwise. The node is the CLAT, the exit is the
-# NAT64 (see yggdrasil-clearnet-proxy):
+# NAT64 (see YggMesh-exit-node):
 #
 #   client 10.0.0.x --NAT44--> 192.0.0.1 --tayga--> fd64::2 --NAT66--> 200:<node>
 #     --Yggdrasil--> <exit /64>::a.b.c.d --exit NAT64--> a.b.c.d

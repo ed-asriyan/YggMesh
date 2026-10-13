@@ -19,16 +19,15 @@
 #     (schema 0): the settings are imported from the configs that firmware
 #     generated, so the Yggdrasil key (the node address) and the SSID survive.
 #
-# Schema 1:
+# Schema 2:
 #   config meta 'meta'
-#       option schema           1
+#       option schema           2
 #   config wifi 'wifi'              client access point
 #       option ssid             1-32 bytes
 #       option encryption       none | psk2 (WPA2) | sae (WPA3) | sae-mixed (WPA2/WPA3)
 #       option key              8-63 characters, unless encryption is none
 #   config yggdrasil 'yggdrasil'
 #       option private_key      128 hex digits, defines the node address
-#       option port             multicast peering port, 1-65535
 #       list dns                DNS resolvers reachable over Yggdrasil, used for .ygg
 #   config discovery 'discovery'    public peers, see yggmesh-fetch-peers
 #       list instance           yggpeers base URLs, none: discovery is off
@@ -39,7 +38,7 @@
 #       option mode             off | wan | wan_exit | exit
 #       list exit               Yggdrasil addresses (200::/8) or domain names
 
-SCHEMA=1
+SCHEMA=2
 INPUTS=/etc/yggmesh/inputs
 CONFIG=/etc/config/yggmesh
 
@@ -77,14 +76,13 @@ init_fresh() {
 
     uci set yggmesh.yggdrasil=yggdrasil
     uci set yggmesh.yggdrasil.private_key="$(new_key)"
-    uci set yggmesh.yggdrasil.port="$(input ygg_port)"
     set_list yggmesh.yggdrasil.dns "$(input yggdrasil_dns)"
 
     uci set yggmesh.discovery=discovery
     set_list yggmesh.discovery.instance "$(input yggpeers_instances)"
     uci set yggmesh.discovery.count="$(input yggpeers_count)"
     uci set yggmesh.discovery.check_interval="$(input yggpeers_check_interval)"
-    uci set yggmesh.discovery.rerank_interval='7'
+    uci set yggmesh.discovery.rerank_interval="$(input yggpeers_rerank_interval)"
 
     exits=$(input clearnet_exits)
     uci set yggmesh.clearnet=clearnet
@@ -133,7 +131,7 @@ init_fresh() {
 # Schema 0 -> 1: the firmware before this file kept the settings in the
 # configs it generated (the discovery and clearnet sections were already here)
 migrate_0() {
-    local ssid key port exits
+    local ssid key exits
 
     ssid=$(uci -q get wireless.private_5g.ssid || uci -q get wireless.private_2g.ssid)
     uci set yggmesh.wifi=wifi
@@ -141,17 +139,15 @@ migrate_0() {
     uci set yggmesh.wifi.encryption='none'
 
     key=$(uci -q get network.yggdrasil.private_key)
-    port=$(uci -q get network.ygg_iface.port)
     uci set yggmesh.yggdrasil=yggdrasil
     uci set yggmesh.yggdrasil.private_key="${key:-$(new_key)}"
-    uci set yggmesh.yggdrasil.port="${port:-$(input ygg_port)}"
     # The firmware advertised exactly the Yggdrasil DNS resolvers over RA
     set_list yggmesh.yggdrasil.dns "$(uci -q get dhcp.private.dns)"
 
     uci set yggmesh.discovery=discovery
     [ -n "$(uci -q get yggmesh.discovery.count)" ] || uci set yggmesh.discovery.count="$(input yggpeers_count)"
     [ -n "$(uci -q get yggmesh.discovery.check_interval)" ] || uci set yggmesh.discovery.check_interval="$(input yggpeers_check_interval)"
-    [ -n "$(uci -q get yggmesh.discovery.rerank_interval)" ] || uci set yggmesh.discovery.rerank_interval='7'
+    [ -n "$(uci -q get yggmesh.discovery.rerank_interval)" ] || uci set yggmesh.discovery.rerank_interval="$(input yggpeers_rerank_interval)"
 
     # Exits configured meant "always through the exits", none meant direct WAN
     exits=$(uci -q get yggmesh.clearnet.exit)
@@ -161,6 +157,11 @@ migrate_0() {
     else
         uci set yggmesh.clearnet.mode='wan'
     fi
+}
+
+# Schema 1 -> 2: the peering port is fixed in yggmesh-apply, not a setting
+migrate_1() {
+    uci -q delete yggmesh.yggdrasil.port
 }
 
 touch "$CONFIG"
@@ -181,7 +182,8 @@ elif [ "$schema" -gt "$SCHEMA" ]; then
     # Settings from a newer firmware: kept as they are, unknown options are ignored
     log "Warning: settings schema $schema is newer than this firmware ($SCHEMA)"
 fi
-# Future migrations: [ "$schema" -lt 2 ] && migrate_1, and so on
+[ "$schema" -lt 2 ] && migrate_1
+# Future migrations: [ "$schema" -lt 3 ] && migrate_2, and so on
 
 [ "$schema" -lt "$SCHEMA" ] && {
     uci set yggmesh.meta=meta

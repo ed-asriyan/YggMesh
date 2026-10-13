@@ -9,12 +9,12 @@
 #   YGGDRASIL_DNS          Space-separated DNS resolver addresses reachable over Yggdrasil (can be empty)
 #   DEFAULT_ROOT_PASSWORD  Initial root password set on first boot
 #   PRIVATE_SSID           Client AP SSID for end-user devices
-#   YGG_PORT               Yggdrasil fixed peering port
 #   YGGPEERS_INSTANCES     Space-separated yggpeers base URLs for global peer auto-discovery (can be empty to disable)
 #   YGGPEERS_COUNT         Target number of global peers per node with internet on WAN (1-10)
 #   YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380
+#   YGGPEERS_RERANK_INTERVAL Days between forced refreshes of the peers list (1-90)
 #   CLEARNET_EXITS         Space-separated Yggdrasil addresses or domain names of clearnet exits (can be empty)
-#   CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit, exit or auto (optional, default auto: exit with exits, wan without)
+#   CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit or exit
 #
 # These are the defaults of the user settings on a fresh install; flashing
 # with kept settings keeps the node's own ones.
@@ -103,12 +103,12 @@ usage() {
     echo "  YGGDRASIL_DNS          Space-separated DNS resolver addresses reachable over Yggdrasil (can be empty)"
     echo "  DEFAULT_ROOT_PASSWORD  Initial root password"
     echo "  PRIVATE_SSID           Client AP SSID"
-    echo "  YGG_PORT               Yggdrasil fixed peering port"
     echo "  YGGPEERS_INSTANCES     Space-separated yggpeers base URLs for peer auto-discovery (can be empty to disable)"
     echo "  YGGPEERS_COUNT         Target number of global peers per node (1-10)"
     echo "  YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380"
+    echo "  YGGPEERS_RERANK_INTERVAL Days between forced refreshes of the peers list (1-90)"
     echo "  CLEARNET_EXITS         Space-separated Yggdrasil addresses or domain names of clearnet exits (can be empty)"
-    echo "  CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit, exit or auto (optional, default auto: exit with exits, wan without)"
+    echo "  CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit or exit"
     exit 1
 }
 

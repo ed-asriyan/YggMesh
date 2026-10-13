@@ -184,35 +184,11 @@ return view.extend({
 		o.depends('encryption', 'sae');
 		o.depends('encryption', 'psk2');
 
-		// Clearnet
-		s = m.section(form.NamedSection, 'clearnet', 'clearnet', _('Clearnet (the Internet)'),
-			_('What the IPv4 traffic of the clients uses. Their IPv6 traffic reaches Yggdrasil only.'));
-
-		o = s.option(form.ListValue, 'mode', _('Mode'),
-			_('<b>WAN</b>: directly through the WAN port of this node; nodes without WAN give no clearnet.') + '<br>' +
-			_('<b>Exits</b>: only through the clearnet exits, never through WAN, so your IP is never used; if no exit works, clients have no clearnet.') + '<br>' +
-			_('<b>WAN, then exits</b>: through WAN while it works, through the exits otherwise; sites see your IP while WAN works.') + '<br>' +
-			_('<b>Off</b>: no clearnet, Yggdrasil only.'));
-		o.value('wan', _('WAN'));
-		o.value('exit', _('Exits'));
-		o.value('wan_exit', _('WAN, then exits'));
-		o.value('off', _('Off'));
-		o.default = 'wan';
-
-		o = s.option(form.DynamicList, 'exit', _('Exits'),
-			_('Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of <a href="%s" target="_blank" rel="noreferrer">clearnet exits</a>. The fastest working one is used.')
-				.format('https://github.com/ed-asriyan/yggdrasil-clearnet-proxy'));
-		o.validate = validateExit;
-		o.optional = true;
-		o.retain = true;
-		o.depends('mode', 'exit');
-		o.depends('mode', 'wan_exit');
-
 		// Yggdrasil
 		s = m.section(form.NamedSection, 'yggdrasil', 'yggdrasil', _('Yggdrasil'));
 
 		o = s.option(form.Value, 'private_key', _('Private key'),
-			_('Defines the node address. Never use the same key on two nodes. Exits that allow only some nodes know the node by its address: give them the new one after a change.'));
+			_('Defines the node address. Keep it secret: never share it with anyone, whoever has it can act as this node. Never use the same key on two nodes. Changing the key changes the node address: exits that allow only some nodes know the node by its address, so send them the new address (shown below), never the key.'));
 		o.password = true;
 		o.rmempty = false;
 		o.validate = validatePrivateKey;
@@ -240,11 +216,6 @@ return view.extend({
 		o = s.option(form.DummyValue, '_key_info', ' ');
 		o.cfgvalue = () => keyInfoEl;
 
-		o = s.option(form.Value, 'port', _('Peering port'),
-			_('Port of the multicast peering with the neighbour nodes.'));
-		o.datatype = 'port';
-		o.rmempty = false;
-
 		o = s.option(form.DynamicList, 'dns', _('DNS resolvers'),
 			_('IPv6 addresses of DNS resolvers reachable over Yggdrasil, used for .ygg and the other Yggdrasil domains.'));
 		o.datatype = 'ip6addr';
@@ -255,25 +226,49 @@ return view.extend({
 			_('A node with internet on WAN connects to the global Yggdrasil network through public peers it picks by itself.'));
 
 		o = s.option(form.DynamicList, 'instance', _('yggpeers instances'),
-			_('Base URLs of <a href="%s" target="_blank" rel="noreferrer">yggpeers</a> instances. A peer is used only if a majority of them report it up. Empty: no public peers.')
+			_('Base URLs of <a href="%s" target="_blank" rel="noreferrer">yggpeers</a> instances. A peer is used only if a majority of them report it up; the reported peers are ranked by ping and the fastest are used. Empty: no public peers.')
 				.format('https://gitfield.org/fsky/yggpeers'));
 		o.validate = validateUrl;
 		o.optional = true;
 
 		o = s.option(form.Value, 'count', _('Number of peers'),
-			_('Peers added by hand count too.'));
+			_('How many public peers the node should be connected to in total. Recommended: 2-3.'));
 		o.datatype = 'range(1, 10)';
 		o.rmempty = false;
 
 		o = s.option(form.Value, 'check_interval', _('Check interval (minutes)'),
-			_('Peers that are down are replaced at the next check.'));
+			_('How often to check that the current peers are alive. If fewer peers are alive than "Number of peers", a new list is requested from yggpeers and the dead ones are replaced.'));
 		o.validate = validateCheckInterval;
 		o.rmempty = false;
 
-		o = s.option(form.Value, 'rerank_interval', _('Re-rank interval (days)'),
-			_('How often all peers are ranked again by ping.'));
+		o = s.option(form.Value, 'rerank_interval', _('Forced refresh interval (days)'),
+			_('How often to request a new peers list from yggpeers, even if all current peers are alive and working well.'));
 		o.datatype = 'range(1, 90)';
 		o.rmempty = false;
+
+		// Clearnet
+		s = m.section(form.NamedSection, 'clearnet', 'clearnet', _('Clearnet (the Internet)'),
+			_('What the IPv4 traffic of the clients uses. Their IPv6 traffic reaches Yggdrasil only.'));
+
+		o = s.option(form.ListValue, 'mode', _('Mode'),
+			_('<b>WAN</b>: directly through the WAN port of this node; nodes without WAN give no clearnet.') + '<br>' +
+			_('<b>Exits</b>: only through the clearnet exits, never through WAN, so your IP is never used; if no exit works, clients have no clearnet.') + '<br>' +
+			_('<b>WAN, then exits</b>: through WAN while it works, through the exits otherwise; sites see your IP while WAN works.') + '<br>' +
+			_('<b>Off</b>: no clearnet, Yggdrasil only.'));
+		o.value('wan', _('WAN'));
+		o.value('exit', _('Exits'));
+		o.value('wan_exit', _('WAN, then exits'));
+		o.value('off', _('Off'));
+		o.default = 'wan';
+
+		o = s.option(form.DynamicList, 'exit', _('Exits'),
+			_('Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of <a href="%s" target="_blank" rel="noreferrer">clearnet exits</a>. The fastest working one is used.')
+				.format('https://github.com/ed-asriyan/YggMesh-exit-node'));
+		o.validate = validateExit;
+		o.optional = true;
+		o.retain = true;
+		o.depends('mode', 'exit');
+		o.depends('mode', 'wan_exit');
 
 		return m.render().then(node => {
 			const statusEl = E('div', { 'id': 'yggmesh-status' }, renderStatus(status));
