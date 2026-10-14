@@ -23,6 +23,8 @@
 #        wireless  every wifi-iface (mesh and client APs), radio channels
 #        firewall  every zone, forwarding, rule, redirect and nat
 #        dhcp      private, the dnsmasq upstream servers; lan is removed
+#      then the local hooks /etc/yggmesh/apply.d/*.sh add the owner's own
+#      networks on top (see run_hooks)
 #   3. Commit, then reload only what really changed (the config files are
 #      compared before and after): netifd, fw4, dnsmasq and odhcpd. Yggdrasil
 #      restarts only when its own settings change: that drops every mesh link.
@@ -501,6 +503,23 @@ build_dhcp() {
     uci add_list dhcp.@dnsmasq[0].server='8.8.8.8'
 }
 
+# Sources the local hooks /etc/yggmesh/apply.d/*.sh, in name order, after the
+# owned sections are rebuilt and before the commit. A hook adds the node
+# owner's own networks (e.g. a home LAN and a guest Wi-Fi next to the YggMesh
+# AP): since every run starts from the rebuilt sections, a hook sets
+# everything it needs on every run. Its changes are committed and reloaded
+# with the rest. It sees the settings ($SSID, $MODE, $YGG_ADDR, $YGG_PREFIX,
+# ...) and must not exit. The directory is kept across flashes
+# (/etc/sysupgrade.conf).
+run_hooks() {
+    local hook
+    for hook in /etc/yggmesh/apply.d/*.sh; do
+        [ -f "$hook" ] || continue
+        log "Running hook ${hook}"
+        . "$hook"
+    done
+}
+
 # ----------------------------------------------------------------------------
 # 3, 4. Commit and reload
 # ----------------------------------------------------------------------------
@@ -523,6 +542,7 @@ apply() {
     build_wireless
     build_firewall
     build_dhcp
+    run_hooks
 
     for c in $CONFIGS; do
         uci commit "$c"
