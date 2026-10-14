@@ -63,6 +63,7 @@ validate_inputs() {
     : "${YGGPEERS_INSTANCES?YGGPEERS_INSTANCES must be set (can be empty)}"
     : "${YGGPEERS_COUNT:?YGGPEERS_COUNT must not be empty}"
     : "${YGGPEERS_CHECK_INTERVAL:?YGGPEERS_CHECK_INTERVAL must not be empty}"
+    : "${YGGPEERS_RERANK_INTERVAL:?YGGPEERS_RERANK_INTERVAL must not be empty}"
     : "${CLEARNET_EXITS?CLEARNET_EXITS must be set (can be empty)}"
 
     # CLEARNET_MODE (optional): what clients' IPv4 uses. Empty or auto: the
@@ -89,6 +90,12 @@ validate_inputs() {
         || [ "$YGGPEERS_CHECK_INTERVAL" -gt 1380 ] \
         || { [ "$YGGPEERS_CHECK_INTERVAL" -ge 60 ] && [ $((YGGPEERS_CHECK_INTERVAL % 60)) -ne 0 ]; }; then
         echo "Error: Invalid YGGPEERS_CHECK_INTERVAL: '$YGGPEERS_CHECK_INTERVAL'. Must be 1-59 or a multiple of 60 up to 1380 (minutes)." >&2
+        exit 1
+    fi
+
+    # Validate that YGGPEERS_RERANK_INTERVAL (days) is an integer from 1 to 90
+    if ! [[ "$YGGPEERS_RERANK_INTERVAL" =~ ^[0-9]+$ ]] || [ "$YGGPEERS_RERANK_INTERVAL" -lt 1 ] || [ "$YGGPEERS_RERANK_INTERVAL" -gt 90 ]; then
+        echo "Error: Invalid YGGPEERS_RERANK_INTERVAL: '$YGGPEERS_RERANK_INTERVAL'. Must be 1-90 (days)." >&2
         exit 1
     fi
 
@@ -167,6 +174,7 @@ prepare_files_dir() {
     echo "$YGGPEERS_INSTANCES" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_instances"
     echo "$YGGPEERS_COUNT" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_count"
     echo "$YGGPEERS_CHECK_INTERVAL" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_check_interval"
+    echo "$YGGPEERS_RERANK_INTERVAL" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_rerank_interval"
     echo "$CLEARNET_EXITS" > "$tmpfiles/etc/yggmesh/inputs/clearnet_exits"
     echo "$CLEARNET_MODE" > "$tmpfiles/etc/yggmesh/inputs/clearnet_mode"
 

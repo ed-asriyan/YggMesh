@@ -110,6 +110,7 @@ Fork this repository, then go to **Actions → Build Firmware → Run workflow**
 | `yggpeers_instances` | Space-separated base URLs of [yggpeers instances](https://gitfield.org/fsky/yggpeers) used to auto-discover public Yggdrasil peers. A peer is used only if a majority of the reachable instances report it as up. Leave empty to disable public peers discovery and rely only on multicast discovery. |
 | `yggpeers_count` | Target number (1-10, default `3`) of global Yggdrasil peers per node with internet on WAN. Peers added by hand to the config count towards this number. |
 | `yggpeers_check_interval` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380, default `30`). Peers that are down are replaced at the next check. |
+| `yggpeers_rerank_interval` | Days between forced refreshes of the global peers list (1-90, default `7`), even if all current peers are alive. |
 | `clearnet_exits` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](https://github.com/ed-asriyan/YggMesh-exit-node); the fastest working one is used. |
 | `clearnet_mode` | What clients' IPv4 traffic uses: `wan` (directly), `exit` (only the exits, **never** WAN), `wan_exit` (WAN while it works, the exits otherwise) or `off`. `auto` (default): `exit` when `clearnet_exits` is set, `wan` otherwise. |
 
@@ -133,6 +134,7 @@ YGGDRASIL_DNS="308:c8:48:45:: 300:7c75:d590:c5d8::100" \
 YGGPEERS_INSTANCES="https://yggpeers.fsky.io" \
 YGGPEERS_COUNT="3" \
 YGGPEERS_CHECK_INTERVAL="30" \
+YGGPEERS_RERANK_INTERVAL="7" \
 CLEARNET_EXITS="" \
 CLEARNET_MODE="auto" \
 ./scripts/build_router.sh axt1800
@@ -148,6 +150,7 @@ The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target)
 | `YGGPEERS_INSTANCES` | Space-separated base URLs of [yggpeers](https://gitfield.org/fsky/yggpeers) instances used to auto-discover public peers. Can be empty to disable auto-discovery. |
 | `YGGPEERS_COUNT` | Target number (1-10) of global Yggdrasil peers per node with internet on WAN. Peers added by hand to the config count towards this number. |
 | `YGGPEERS_CHECK_INTERVAL` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380). |
+| `YGGPEERS_RERANK_INTERVAL` | Days between forced refreshes of the global peers list (1-90), even if all current peers are alive. |
 | `CLEARNET_EXITS` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](https://github.com/ed-asriyan/YggMesh-exit-node); the fastest working one is used. Can be empty. |
 | `CLEARNET_MODE` | Optional: `wan`, `exit`, `wan_exit`, `off` or `auto` (default: `exit` with exits, `wan` without). |
 

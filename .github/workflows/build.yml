@@ -32,6 +32,11 @@ on:
         required: false
         default: "30"
         type: string
+      yggpeers_rerank_interval:
+        description: Days between forced refreshes of the global peers list on a node (1-90), even if all current peers are alive.
+        required: false
+        default: "7"
+        type: string
       private_ssid:
         description: Client AP SSID for end-user devices
         required: false
@@ -87,6 +92,11 @@ on:
         required: false
         default: "30"
         type: string
+      yggpeers_rerank_interval:
+        description: Days between forced refreshes of the global peers list on a node (1-90), even if all current peers are alive.
+        required: false
+        default: "7"
+        type: string
       private_ssid:
         description: Client AP SSID for end-user devices
         required: false
@@ -133,6 +143,7 @@ jobs:
           YGGPEERS_INSTANCES: ${{ inputs.yggpeers_instances }}
           YGGPEERS_COUNT: ${{ inputs.yggpeers_count || '3' }}
           YGGPEERS_CHECK_INTERVAL: ${{ inputs.yggpeers_check_interval || '30' }}
+          YGGPEERS_RERANK_INTERVAL: ${{ inputs.yggpeers_rerank_interval || '7' }}
           PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
           CLEARNET_EXITS: ${{ inputs.clearnet_exits }}
           CLEARNET_MODE: ${{ inputs.clearnet_mode }}

@@ -82,7 +82,7 @@ init_fresh() {
     set_list yggmesh.discovery.instance "$(input yggpeers_instances)"
     uci set yggmesh.discovery.count="$(input yggpeers_count)"
     uci set yggmesh.discovery.check_interval="$(input yggpeers_check_interval)"
-    uci set yggmesh.discovery.rerank_interval='7'
+    uci set yggmesh.discovery.rerank_interval="$(input yggpeers_rerank_interval)"
 
     exits=$(input clearnet_exits)
     uci set yggmesh.clearnet=clearnet
@@ -147,7 +147,7 @@ migrate_0() {
     uci set yggmesh.discovery=discovery
     [ -n "$(uci -q get yggmesh.discovery.count)" ] || uci set yggmesh.discovery.count="$(input yggpeers_count)"
     [ -n "$(uci -q get yggmesh.discovery.check_interval)" ] || uci set yggmesh.discovery.check_interval="$(input yggpeers_check_interval)"
-    [ -n "$(uci -q get yggmesh.discovery.rerank_interval)" ] || uci set yggmesh.discovery.rerank_interval='7'
+    [ -n "$(uci -q get yggmesh.discovery.rerank_interval)" ] || uci set yggmesh.discovery.rerank_interval="$(input yggpeers_rerank_interval)"
 
     # Exits configured meant "always through the exits", none meant direct WAN
     exits=$(uci -q get yggmesh.clearnet.exit)
