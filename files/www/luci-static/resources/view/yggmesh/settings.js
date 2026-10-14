@@ -188,7 +188,7 @@ return view.extend({
 		s = m.section(form.NamedSection, 'yggdrasil', 'yggdrasil', _('Yggdrasil'));
 
 		o = s.option(form.Value, 'private_key', _('Private key'),
-			_('Defines the node address. Never use the same key on two nodes. Exits that allow only some nodes know the node by its address: give them the new one after a change.'));
+			_('Defines the node address. Keep it secret: never share it with anyone, whoever has it can act as this node. Never use the same key on two nodes. Changing the key changes the node address: exits that allow only some nodes know the node by its address, so send them the new address (shown below), never the key.'));
 		o.password = true;
 		o.rmempty = false;
 		o.validate = validatePrivateKey;
@@ -215,11 +215,6 @@ return view.extend({
 
 		o = s.option(form.DummyValue, '_key_info', ' ');
 		o.cfgvalue = () => keyInfoEl;
-
-		o = s.option(form.Value, 'port', _('Peering port'),
-			_('Port of the multicast peering with the neighbour nodes.'));
-		o.datatype = 'port';
-		o.rmempty = false;
 
 		o = s.option(form.DynamicList, 'dns', _('DNS resolvers'),
 			_('IPv6 addresses of DNS resolvers reachable over Yggdrasil, used for .ygg and the other Yggdrasil domains.'));

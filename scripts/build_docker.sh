@@ -9,7 +9,6 @@
 #   YGGDRASIL_DNS          Space-separated DNS resolver addresses reachable over Yggdrasil (can be empty)
 #   DEFAULT_ROOT_PASSWORD  Initial root password set on first boot
 #   PRIVATE_SSID           Client AP SSID for end-user devices
-#   YGG_PORT               Yggdrasil fixed peering port
 #   YGGPEERS_INSTANCES     Space-separated yggpeers base URLs for global peer auto-discovery (can be empty to disable)
 #   YGGPEERS_COUNT         Target number of global peers per node with internet on WAN (1-10)
 #   YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380
@@ -45,7 +44,6 @@ usage() {
     echo "  YGGDRASIL_DNS          Space-separated DNS resolver addresses reachable over Yggdrasil (can be empty)"
     echo "  DEFAULT_ROOT_PASSWORD  Initial root password"
     echo "  PRIVATE_SSID           Client AP SSID"
-    echo "  YGG_PORT               Yggdrasil fixed peering port"
     echo "  YGGPEERS_INSTANCES     Space-separated yggpeers base URLs for peer auto-discovery (can be empty to disable)"
     echo "  YGGPEERS_COUNT         Target number of global peers per node (1-10)"
     echo "  YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380"

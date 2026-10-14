@@ -136,7 +136,6 @@ jobs:
           PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
           CLEARNET_EXITS: ${{ inputs.clearnet_exits }}
           CLEARNET_MODE: ${{ inputs.clearnet_mode }}
-          YGG_PORT: "17000"
         run: |
           chmod +x scripts/build_router.sh
           ./scripts/build_router.sh "${{ inputs.device }}"

@@ -59,7 +59,6 @@ validate_inputs() {
     # :? fails if unset or empty; ? fails only if unset (empty string is allowed).
     : "${DEFAULT_ROOT_PASSWORD:?DEFAULT_ROOT_PASSWORD must not be empty}"
     : "${PRIVATE_SSID:?PRIVATE_SSID must not be empty}"
-    : "${YGG_PORT:?YGG_PORT must not be empty}"
     : "${YGGDRASIL_DNS?YGGDRASIL_DNS must be set (can be empty)}"
     : "${YGGPEERS_INSTANCES?YGGPEERS_INSTANCES must be set (can be empty)}"
     : "${YGGPEERS_COUNT:?YGGPEERS_COUNT must not be empty}"
@@ -78,12 +77,6 @@ validate_inputs() {
             exit 1
             ;;
     esac
-
-    # Validate that YGG_PORT is a valid port number
-    if ! [[ "$YGG_PORT" =~ ^[0-9]+$ ]] || [ "$YGG_PORT" -lt 1 ] || [ "$YGG_PORT" -gt 65535 ]; then
-        echo "Error: Invalid port in YGG_PORT: '$YGG_PORT'. Must be 1-65535." >&2
-        exit 1
-    fi
 
     # Validate that YGGPEERS_COUNT is an integer from 1 to 10
     if ! [[ "$YGGPEERS_COUNT" =~ ^[0-9]+$ ]] || [ "$YGGPEERS_COUNT" -lt 1 ] || [ "$YGGPEERS_COUNT" -gt 10 ]; then
@@ -171,7 +164,6 @@ prepare_files_dir() {
     echo "$YGGDRASIL_DNS" > "$tmpfiles/etc/yggmesh/inputs/yggdrasil_dns"
     echo "$DEFAULT_ROOT_PASSWORD" > "$tmpfiles/etc/yggmesh/inputs/root_password"
     echo "$PRIVATE_SSID" > "$tmpfiles/etc/yggmesh/inputs/private_ssid"
-    echo "$YGG_PORT" > "$tmpfiles/etc/yggmesh/inputs/ygg_port"
     echo "$YGGPEERS_INSTANCES" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_instances"
     echo "$YGGPEERS_COUNT" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_count"
     echo "$YGGPEERS_CHECK_INTERVAL" > "$tmpfiles/etc/yggmesh/inputs/yggpeers_check_interval"
