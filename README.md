@@ -112,7 +112,7 @@ Fork this repository, then go to **Actions → Build Firmware → Run workflow**
 | `yggpeers_check_interval` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380, default `30`). Peers that are down are replaced at the next check. |
 | `yggpeers_rerank_interval` | Days between forced refreshes of the global peers list (1-90, default `7`), even if all current peers are alive. |
 | `clearnet_exits` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](https://github.com/ed-asriyan/YggMesh-exit-node); the fastest working one is used. |
-| `clearnet_mode` | What clients' IPv4 traffic uses: `wan` (directly), `exit` (only the exits, **never** WAN), `wan_exit` (WAN while it works, the exits otherwise) or `off`. `auto` (default): `exit` when `clearnet_exits` is set, `wan` otherwise. |
+| `clearnet_mode` | What clients' IPv4 traffic uses: `wan` (directly), `exit` (only the exits, **never** WAN), `wan_exit` (WAN while it works, the exits otherwise) or `off`. Default `wan`. |
 
 The inputs are only the **default** [settings](#settings-reference) of a freshly installed node; every node can change them later on its YggMesh page in LuCI.
 
@@ -125,7 +125,7 @@ Requires either:
 - Linux with `wget`, `zstd`, `make`, and `python3`
 - This repository opened in the devcontainer (works on ARM Macs)
 
-All variables below are required, except `CLEARNET_MODE`. The script will fail immediately if any are missing.
+All variables below are required. The script will fail immediately if any are missing.
 
 ```bash
 PRIVATE_SSID="YggMesh" \
@@ -136,7 +136,7 @@ YGGPEERS_COUNT="3" \
 YGGPEERS_CHECK_INTERVAL="30" \
 YGGPEERS_RERANK_INTERVAL="7" \
 CLEARNET_EXITS="" \
-CLEARNET_MODE="auto" \
+CLEARNET_MODE="wan" \
 ./scripts/build_router.sh axt1800
 ```
 
@@ -152,7 +152,7 @@ The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target)
 | `YGGPEERS_CHECK_INTERVAL` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380). |
 | `YGGPEERS_RERANK_INTERVAL` | Days between forced refreshes of the global peers list (1-90), even if all current peers are alive. |
 | `CLEARNET_EXITS` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](https://github.com/ed-asriyan/YggMesh-exit-node); the fastest working one is used. Can be empty. |
-| `CLEARNET_MODE` | Optional: `wan`, `exit`, `wan_exit`, `off` or `auto` (default: `exit` with exits, `wan` without). |
+| `CLEARNET_MODE` | What clients' IPv4 traffic uses: `wan`, `exit`, `wan_exit` or `off`. |
 
 ## See it in action
 To see the mesh working, set up a 3-node linear test (A → B → C).

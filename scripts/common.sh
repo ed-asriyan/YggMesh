@@ -66,11 +66,8 @@ validate_inputs() {
     : "${YGGPEERS_RERANK_INTERVAL:?YGGPEERS_RERANK_INTERVAL must not be empty}"
     : "${CLEARNET_EXITS?CLEARNET_EXITS must be set (can be empty)}"
 
-    # CLEARNET_MODE (optional): what clients' IPv4 uses. Empty or auto: the
-    # exits when there are any, WAN otherwise
-    if [ -z "${CLEARNET_MODE:-}" ] || [ "$CLEARNET_MODE" = "auto" ]; then
-        if [ -n "$CLEARNET_EXITS" ]; then CLEARNET_MODE=exit; else CLEARNET_MODE=wan; fi
-    fi
+    # CLEARNET_MODE: what clients' IPv4 uses
+    : "${CLEARNET_MODE:?CLEARNET_MODE must not be empty}"
     case "$CLEARNET_MODE" in
         off|wan|wan_exit|exit) ;;
         *)

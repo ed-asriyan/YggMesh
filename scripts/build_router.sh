@@ -14,7 +14,7 @@
 #   YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380
 #   YGGPEERS_RERANK_INTERVAL Days between forced refreshes of the peers list (1-90)
 #   CLEARNET_EXITS         Space-separated Yggdrasil addresses or domain names of clearnet exits (can be empty)
-#   CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit, exit or auto (optional, default auto: exit with exits, wan without)
+#   CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit or exit
 #
 # These are the defaults of the user settings on a fresh install; flashing
 # with kept settings keeps the node's own ones.
@@ -108,7 +108,7 @@ usage() {
     echo "  YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380"
     echo "  YGGPEERS_RERANK_INTERVAL Days between forced refreshes of the peers list (1-90)"
     echo "  CLEARNET_EXITS         Space-separated Yggdrasil addresses or domain names of clearnet exits (can be empty)"
-    echo "  CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit, exit or auto (optional, default auto: exit with exits, wan without)"
+    echo "  CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit or exit"
     exit 1
 }
 
