@@ -1,0 +1,69 @@
+#!/bin/sh
+# Deauthenticate openNDS clients as soon as they leave the Wi-Fi AP,
+# so the captive portal is shown again on every reconnect.
+# Run by /etc/init.d/yggmesh-portal-deauth.
+#
+# hostapd has one ubus object per AP (hostapd.phy1-ap0, ...). A Wi-Fi reload
+# (yggmesh-apply, "Save & Apply" in LuCI, wifi up) removes them and creates
+# new ones with new ids, and `ubus subscribe` does not notice: it keeps
+# waiting on the removed objects and no disassociation arrives any more. At
+# boot the APs also come up one by one, after this service starts. So the
+# subscription is rebuilt whenever the set of hostapd objects changes.
+
+FIFO=/var/run/yggmesh-portal-deauth.fifo
+POLL=5
+
+hostapd_objects() {
+    ubus list 'hostapd.*' 2>/dev/null | sort
+}
+
+# Deauthenticates every client whose disassociation arrives on stdin
+deauth_events() {
+    local event mac
+    while read -r event; do
+        mac=$(echo "$event" | jsonfilter -e '@.disassoc.address' 2>/dev/null)
+        [ -n "$mac" ] || continue
+        ndsctl deauth "$mac" >/dev/null 2>&1 && logger -t yggmesh "Portal: deauthenticated $mac (left Wi-Fi)"
+    done
+}
+
+cleanup() {
+    [ -n "$ubus_pid" ] && kill "$ubus_pid" 2>/dev/null
+    [ -n "$watch_pid" ] && kill "$watch_pid" 2>/dev/null
+    rm -f "$FIFO"
+    exit 0
+}
+trap cleanup INT TERM
+
+while :; do
+    objects=$(hostapd_objects)
+    if [ -z "$objects" ]; then
+        sleep "$POLL"
+        continue
+    fi
+
+    rm -f "$FIFO"
+    mkfifo "$FIFO"
+
+    # shellcheck disable=SC2086
+    ubus -S subscribe $objects > "$FIFO" &
+    ubus_pid=$!
+
+    # Ends the subscription when the APs change (or ubus exits by itself)
+    (
+        while kill -0 "$ubus_pid" 2>/dev/null; do
+            sleep "$POLL"
+            [ "$(hostapd_objects)" = "$objects" ] || break
+        done
+        kill "$ubus_pid" 2>/dev/null
+    ) &
+    watch_pid=$!
+
+    # Returns when the subscription ends: the FIFO's writer is gone
+    deauth_events < "$FIFO"
+
+    kill "$watch_pid" 2>/dev/null
+    wait "$ubus_pid" 2>/dev/null
+    ubus_pid=""
+    watch_pid=""
+done

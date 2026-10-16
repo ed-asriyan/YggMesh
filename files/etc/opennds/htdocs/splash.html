@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YggMesh</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #fff;
+            color: #111;
+            margin: 0 auto;
+            max-width: 750px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        .global-h2 {
+            font-size: 1.8rem;
+            margin-top: 0;
+            margin-bottom: 1rem;
+        }
+        .global-p {
+            font-size: 1.2rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.4;
+        }
+        
+        .btn {
+            background-color: #fff;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            padding: 1rem 2rem;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            max-width: 400px;
+            margin-top: 1rem;
+            transition: transform 0.1s;
+        }
+        .btn:active { transform: scale(0.97); }
+        .btn-blue {
+            background-color: #0366d6;
+            color: #fff;
+        }
+
+        .step-card {
+            text-align: left;
+            animation: slideUp 0.4s ease-out;
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .diagram-box {
+            position: relative;
+            margin: 0.5rem 0 1.5rem;
+            cursor: zoom-in;
+        }
+        .diagram {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        /* Magnifier hint: tells the user the diagram can be enlarged */
+        .zoom-badge {
+            position: absolute;
+            right: 0.5rem;
+            bottom: 0.5rem;
+            padding: 0.3rem 0.5rem;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+            font-size: 1.3rem;
+            line-height: 1;
+            pointer-events: none;
+        }
+        .step-card a { color: #0366d6; }
+
+        /* Fullscreen diagram: overlay on this page, no navigation */
+        #lightbox {
+            position: fixed;
+            inset: 0;
+            background: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #lightbox[hidden] { display: none; }
+        #lightbox img { max-width: 100%; max-height: 100%; }
+
+        .spinner {
+            display: inline-block;
+            width: 1em;
+            height: 1em;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            vertical-align: middle;
+            margin-left: 8px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="step2" class="step-card">
+        <h2 class="global-h2">You found <span style="color: #0366d6;">YggMesh</span> — a new kind of Internet 🌐</h2>
+        <p class="global-p" style="color: #444;"><strong>YggMesh</strong> connects nearby routers into a decentralized wireless mesh.</p>
+        <p class="global-p" style="color: #444;">Nearby routers discover each other automatically and route traffic across the mesh — <strong>without relying on a central server or cellular network.</strong></p>
+        <!-- Served from the router's webroot so it renders without internet -->
+        <div class="diagram-box" onclick="toggleDiagram()">
+            <img class="diagram" src="/diagram.svg" alt="YggMesh nodes linking to each other and sharing one internet uplink across the network">
+            <span class="zoom-badge" aria-hidden="true">🔍</span>
+        </div>
+        <p class="global-p" style="color: #444;">Cell network down? Blackout in the district? As long as <strong>at least one node</strong> has global connectivity, <strong>everyone</strong> does.</p>
+        <p class="global-p" style="color: #444;"><strong>Decentralized. Open source. Built for resilient connectivity.</strong></p>
+        <form action="$authtarget" method="get" style="margin: 0; text-align: center;">
+            <input type="hidden" name="fas" value="$fas">
+            <input type="hidden" name="landing" value="yes">
+            <button type="submit" class="btn btn-blue" style="margin: 0 auto;">Connect to the internet 🚀</button>
+        </form>
+        <p style="margin: 1.5rem 0 0; text-align: center; font-size: 0.95rem;"><a href="https://yggmesh.com?utm_source=captive_portal&utm_medium=wifi&utm_campaign=yggmesh_router">Learn more at yggmesh.com</a></p>
+    </div>
+
+    <div id="lightbox" hidden onclick="toggleDiagram()">
+        <img src="/diagram.svg" alt="YggMesh network diagram, enlarged">
+    </div>
+
+    <script>
+        function toggleDiagram() {
+            const lightbox = document.getElementById('lightbox');
+            lightbox.hidden = !lightbox.hidden;
+        }
+
+        // Authenticate with openNDS, then leave the portal for `url`.
+        // Used by both the Connect button and any external link.
+        function connect(url) {
+            const btn = document.querySelector('form button');
+            btn.innerHTML = 'Connecting... <span class="spinner"></span>';
+            btn.disabled = true;
+            btn.style.opacity = '0.8';
+
+            const authUrl = "$authtarget" + "?fas=" + encodeURIComponent("$fas") + "&landing=yes";
+
+            fetch(authUrl, { mode: "no-cors" })
+                .finally(() => {
+                    setTimeout(() => {
+                        window.location.href = url;
+                    }, 500); // short wait to ensure openNDS processed auth
+                });
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            document.querySelector('form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                connect("https://yggmesh.com?utm_source=captive_portal&utm_medium=wifi&utm_campaign=yggmesh_router");
+            });
+        });
+
+        // Any external link connects exactly like the button
+        document.addEventListener("click", (event) => {
+            const link = event.target.closest('a[href^="http"], a[href^="mailto:"]');
+            if (link) {
+                event.preventDefault();
+                connect(link.href);
+            }
+        });
+    </script>
+</body>
+</html>

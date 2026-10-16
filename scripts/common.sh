@@ -46,6 +46,7 @@ COMMON_PACKAGES=(
     # add_yggdrasil. (uclient-fetch, libustream-mbedtls and ca-bundle are
     # defaults.)
     kmod-tun
+    opennds
 )
 
 # Yggdrasil-ng (https://github.com/Revertron/Yggdrasil-ng): the static binary

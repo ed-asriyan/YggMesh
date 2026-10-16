@@ -1,0 +1,20 @@
+#!/bin/sh /etc/rc.common
+# Devices with a static DHCP lease on the YggMesh network skip the captive
+# portal, see /usr/sbin/yggmesh-portal-trust. No process: the service syncs the
+# openNDS trusted list at boot, before openNDS (START=15) reads it, and holds
+# the reload trigger for dhcp config changes.
+
+START=14
+USE_PROCD=1
+
+start_service() {
+	/usr/sbin/yggmesh-portal-trust --boot
+}
+
+reload_service() {
+	/usr/sbin/yggmesh-portal-trust
+}
+
+service_triggers() {
+	procd_add_reload_trigger dhcp
+}

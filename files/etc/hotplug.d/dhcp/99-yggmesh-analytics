@@ -1,0 +1,10 @@
+#!/bin/sh
+# Log when a client gets a DHCP lease (Wi-Fi connected)
+# Only the YggMesh AP (br-private, 10.0.0.0/24), not networks added by hooks
+case "$IPADDR" in
+    10.0.0.*) ;;
+    *) exit 0 ;;
+esac
+if [ "$ACTION" = "add" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - action: wifi_connected" >> /var/log/yggmesh-analytics.log
+fi
