@@ -1,0 +1,66 @@
+#!/bin/sh
+# YggMesh — devices with a static DHCP lease on the YggMesh network skip the
+# captive portal.
+#
+# The owner's own devices (smart bulbs that cannot click through the portal,
+# a server with port forwards, ...) get a static lease in LuCI (Network > DHCP
+# and DNS > Static Leases, or "Set Static" next to an active lease) with an
+# address in the YggMesh client network. This script makes the openNDS trusted
+# list (opennds.@opennds[0].trustedmac) exactly the MAC addresses of those
+# leases: removing the lease brings the portal back for that device. Leases in
+# other subnets (other networks the owner added) are ignored.
+#
+# Run by /etc/init.d/yggmesh-portal-trust at boot (--boot, before openNDS
+# starts) and whenever the dhcp config changes (LuCI "Save & Apply",
+# `reload_config`), and by yggmesh-apply after its commit. The running openNDS
+# gets the change live through ndsctl, never a restart: its stop reverts
+# uncommitted uci changes (network, dhcp).
+#
+# Usage: yggmesh-portal-trust [--boot]
+# Logs: logread -e yggmesh
+
+TAG="yggmesh"
+LOCK="/var/lock/yggmesh-portal-trust.lock"
+
+BOOT=0
+[ "$1" = "--boot" ] && BOOT=1
+
+# Prints the MAC addresses (lower case, sorted, one per line) of the static
+# leases in the YggMesh client network /24
+lease_macs() {
+    local ip prefix sec
+    ip=$(uci -q get network.private.ipaddr)
+    ip="${ip%%/*}"
+    [ -n "$ip" ] || return 0
+    prefix="${ip%.*}."
+
+    for sec in $(uci -q -X show dhcp | sed -n "s/^dhcp\.\([^.]*\)=host$/\1/p"); do
+        case "$(uci -q get "dhcp.$sec.ip")" in
+            "$prefix"*) uci -q get "dhcp.$sec.mac" | tr ' ' '\n' ;;
+        esac
+    done | tr 'A-F' 'a-f' | grep -E '^([0-9a-f]{2}:){5}[0-9a-f]{2}$' | sort -u
+}
+
+exec 9>"$LOCK"
+flock 9
+
+want=$(lease_macs)
+have=$(uci -q get opennds.@opennds[0].trustedmac | tr ' ' '\n' | grep . | sort -u)
+[ "$want" = "$have" ] && exit 0
+
+uci -q delete opennds.@opennds[0].trustedmac
+for m in $want; do
+    uci add_list opennds.@opennds[0].trustedmac="$m"
+done
+uci commit opennds
+logger -t "$TAG" "Portal trusted devices (static leases): $(echo $want)"
+
+[ "$BOOT" = 1 ] && exit 0
+ndsctl status >/dev/null 2>&1 || exit 0
+for m in $have; do
+    echo "$want" | grep -qx "$m" || ndsctl untrust "$m" >/dev/null 2>&1
+done
+for m in $want; do
+    echo "$have" | grep -qx "$m" || ndsctl trust "$m" >/dev/null 2>&1
+done
+exit 0

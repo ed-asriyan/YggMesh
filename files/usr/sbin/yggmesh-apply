@@ -28,8 +28,9 @@
 #   3. Commit, then reload only what really changed (the config files are
 #      compared before and after): netifd, fw4, dnsmasq and odhcpd. Yggdrasil
 #      restarts only when its own settings change: that drops every mesh link.
-#   4. Start, reload or stop yggmesh-clearnet for the clearnet mode, and run
-#      yggmesh-fetch-peers in the background (it follows the discovery
+#   4. Start, reload or stop yggmesh-clearnet for the clearnet mode, sync the
+#      portal's trusted devices with the static leases (yggmesh-portal-trust),
+#      and run yggmesh-fetch-peers in the background (it follows the discovery
 #      settings by itself).
 #
 # Logs: logread -e yggmesh
@@ -586,6 +587,10 @@ apply() {
     else
         /etc/init.d/yggmesh-clearnet stop
     fi
+
+    # Static leases (a hook may add some) -> the openNDS trusted list. LuCI
+    # changes to the leases are picked up by yggmesh-portal-trust's own trigger.
+    /usr/sbin/yggmesh-portal-trust
 
     # Picks up the discovery settings (and their schedule) by itself; fd 1000
     # is the procd lock of the init script, a long run must not hold it

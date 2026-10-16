@@ -50,6 +50,7 @@ COMMON_PACKAGES=(
     yggmesh-jool-siit
     kmod-veth
     ip-tiny
+    opennds
 )
 
 # ============================================================================
