@@ -13,7 +13,7 @@ This project builds a mesh network for cases where normal network infrastructure
 - Every node runs a WiFi hotspot (open by default). Phones and laptops that connect to it get access to Yggdrasil IPv6.
 - Access to clearnet (the Internet) websites through the mesh, via [YggMesh exit nodes](https://github.com/ed-asriyan/YggMesh-exit-node).
 
-![Diagram](./diagram.drawio.svg)
+![Diagram](./diagram.svg)
 
 ## Getting Started
 
