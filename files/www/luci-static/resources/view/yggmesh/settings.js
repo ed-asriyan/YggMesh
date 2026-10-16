@@ -259,7 +259,7 @@ return view.extend({
 		o.value('exit', _('Exits'));
 		o.value('wan_exit', _('WAN, then exits'));
 		o.value('off', _('Off'));
-		o.default = 'wan';
+		o.default = 'wan_exit';
 
 		o = s.option(form.DynamicList, 'exit', _('Exits'),
 			_('Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of <a href="%s" target="_blank" rel="noreferrer">clearnet exits</a>. The fastest working one is used.')

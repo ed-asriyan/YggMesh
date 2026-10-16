@@ -112,7 +112,7 @@ Fork this repository, then go to **Actions → Build Firmware → Run workflow**
 | `yggpeers_check_interval` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380, default `30`). Peers that are down are replaced at the next check. |
 | `yggpeers_rerank_interval` | Days between forced refreshes of the global peers list (1-90, default `7`), even if all current peers are alive. |
 | `clearnet_exits` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](https://github.com/ed-asriyan/YggMesh-exit-node); the fastest working one is used. |
-| `clearnet_mode` | What clients' IPv4 traffic uses: `wan` (directly), `exit` (only the exits, **never** WAN), `wan_exit` (WAN while it works, the exits otherwise) or `off`. Default `wan`. |
+| `clearnet_mode` | What clients' IPv4 traffic uses: `wan` (directly), `exit` (only the exits, **never** WAN), `wan_exit` (WAN while it works, the exits otherwise) or `off`. Default `wan_exit`. |
 
 The inputs are only the **default** [settings](#settings-reference) of a freshly installed node; every node can change them later on its YggMesh page in LuCI.
 
@@ -136,7 +136,7 @@ YGGPEERS_COUNT="3" \
 YGGPEERS_CHECK_INTERVAL="30" \
 YGGPEERS_RERANK_INTERVAL="7" \
 CLEARNET_EXITS="" \
-CLEARNET_MODE="wan" \
+CLEARNET_MODE="wan_exit" \
 ./scripts/build_router.sh axt1800
 ```
 

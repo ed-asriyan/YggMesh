@@ -50,7 +50,7 @@ on:
       clearnet_mode:
         description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. Needs clearnet_exits for exit and wan_exit."
         required: false
-        default: wan
+        default: wan_exit
         type: string
   workflow_dispatch:
     inputs:
@@ -110,7 +110,7 @@ on:
       clearnet_mode:
         description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. Needs clearnet_exits for exit and wan_exit."
         required: false
-        default: wan
+        default: wan_exit
         type: choice
         options:
           - wan
@@ -145,7 +145,7 @@ jobs:
           YGGPEERS_RERANK_INTERVAL: ${{ inputs.yggpeers_rerank_interval || '7' }}
           PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
           CLEARNET_EXITS: ${{ inputs.clearnet_exits }}
-          CLEARNET_MODE: ${{ inputs.clearnet_mode || 'wan' }}
+          CLEARNET_MODE: ${{ inputs.clearnet_mode || 'wan_exit' }}
         run: |
           chmod +x scripts/build_router.sh
           ./scripts/build_router.sh "${{ inputs.device }}"
