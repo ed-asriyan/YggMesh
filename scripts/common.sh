@@ -47,7 +47,12 @@ COMMON_PACKAGES=(
     iwinfo
     curl
     ca-bundle
-    tayga
+    # The in-kernel CLAT, see yggmesh-clearnet. ip-tiny: busybox ip has no
+    # netns and no veth (it used to come in as a dependency of tayga)
+    kmod-jool-netfilter
+    jool-tools-netfilter
+    kmod-veth
+    ip-tiny
 )
 
 # ============================================================================

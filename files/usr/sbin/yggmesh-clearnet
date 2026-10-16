@@ -8,8 +8,14 @@
 # it works and the exits otherwise. The node is the CLAT, the exit is the
 # NAT64 (see YggMesh-exit-node):
 #
-#   client 10.0.0.x --NAT44--> 192.0.0.1 --tayga--> fd64::2 --NAT66--> 200:<node>
+#   client 10.0.0.x --NAT44--> 192.0.0.1 --CLAT--> fd64::2 --NAT66--> 200:<node>
 #     --Yggdrasil--> <exit /64>::a.b.c.d --exit NAT64--> a.b.c.d
+#
+# The CLAT (the 4 <-> 6 translator) is Jool SIIT, in the kernel, so translated
+# packets never visit userspace. It lives in its own network namespace NS
+# behind the veth pair clat <-> clat0: Jool hooks PREROUTING and its translated
+# packets skip FORWARD and conntrack, so in its own namespace the main one
+# still sees every packet the usual way (fw4 zones, NAT44, NAT66).
 #
 # The NAT64 prefix of an exit is derived from its Yggdrasil address: the
 # exit's routed /64 (first byte 0x02 -> 0x03) followed by 32 zero bits, so the
@@ -65,19 +71,22 @@
 # Logs: logread -e yggmesh-clearnet
 
 TAG="yggmesh-clearnet"
-CLAT_DEV="clat"
+CLAT_DEV="clat"          # the main side of the veth pair into NS
 CLAT_MTU=1520            # IPv4 1500 + 20 bytes of IPv6 header growth
 CLAT_HOST4="192.0.0.1"   # NAT44 target of the clients (RFC 7335 range)
-CLAT_TAYGA4="192.0.0.2"
 CLAT_NET6="fd64::/64"    # translated traffic, masqueraded to the node address by fw4
-CLAT_TAYGA6="fd64::1"
-CLAT_USER6="fd64::2"
+CLAT_USER6="fd64::2"     # the clients, translated (Jool EAMT)
+# The namespace of Jool, its side of the veth pair and the link addresses
+NS="yggclat"
+NS_DEV="clat0"
+NS_HOST4="192.0.0.2"     # next hop of the client IPv4, in NS
+LINK6_MAIN="fe80::1"
+LINK6_NS="fe80::2"       # next hop of fd64::/64, in NS
+JOOL_INSTANCE="yggmesh"
 TABLE=64                 # routing table of the client IPv4 traffic
 RULE_PRIO=6400
 WAN_PRIO=6399            # wan_exit: the client IPv4 uses the main table first
 CLIENT_DEV="br-private"
-CONF="/var/etc/yggmesh-clearnet-tayga.conf"
-PIDFILE="/var/run/yggmesh-clearnet-tayga.pid"
 DNS_FILE="/etc/yggmesh/clearnet-dns.conf"
 STATUS_FILE="/var/run/yggmesh-clearnet.status"   # for the LuCI page
 CHECK_INTERVAL=30
@@ -137,19 +146,6 @@ resolve_name() {
     done
 }
 
-# Writes the tayga config. With prefix $1 the CLAT translates towards that
-# exit; without it only the static map is set (enough for --mktun).
-write_conf() {
-    mkdir -p "${CONF%/*}"
-    {
-        echo "tun-device $CLAT_DEV"
-        echo "ipv4-addr $CLAT_TAYGA4"
-        echo "ipv6-addr $CLAT_TAYGA6"
-        echo "map $CLAT_HOST4 $CLAT_USER6"
-        [ -n "$1" ] && echo "prefix ${1}/96"
-    } > "$CONF"
-}
-
 # Points the extra dnsmasq servers at exit prefix $1. The file is rewritten in
 # place (dnsmasq runs in a jail with this very file bind-mounted) and only when
 # its content changes, to spare the flash.
@@ -161,20 +157,69 @@ write_dns() {
     killall -HUP dnsmasq 2>/dev/null
 }
 
-tayga_stop() {
-    local pid
-    pid=$(cat "$PIDFILE" 2>/dev/null)
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        kill "$pid" 2>/dev/null
-        sleep 1
-    fi
-    rm -f "$PIDFILE"
+# Runs jool_siit with arguments $@ on the instance in NS
+jool_ns() {
+    ip netns exec "$NS" jool_siit -i "$JOOL_INSTANCE" "$@"
 }
 
-tayga_running() {
-    local pid
-    pid=$(cat "$PIDFILE" 2>/dev/null)
-    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+clat_running() {
+    jool_ns global display >/dev/null 2>&1
+}
+
+# Creates the Jool instance in NS, pointed at prefix $1 (optional)
+clat_instance() {
+    ip netns exec "$NS" jool_siit instance add "$JOOL_INSTANCE" --netfilter ${1:+--pool6 "${1}/96"} >/dev/null \
+        || return 1
+    # As on any 1520 link: IPv4 without DF is not fragmented below that
+    jool_ns global update lowest-ipv6-mtu "$CLAT_MTU" >/dev/null
+    jool_ns eamt add "$CLAT_HOST4" "$CLAT_USER6" >/dev/null
+}
+
+# Removes the CLAT: the Jool instance, the veth pair and NS
+clat_remove() {
+    jool_ns instance remove >/dev/null 2>&1
+    ip link del "$CLAT_DEV" 2>/dev/null
+    ip netns del "$NS" 2>/dev/null
+    return 0
+}
+
+# Creates NS with the Jool SIIT instance and the veth pair into it. Kept as is
+# when it is already there, so a restart does not cut the clients off.
+#   main: clat 192.0.0.1/29 fe80::1, fd64::/64 via fe80::2
+#   NS:   clat0 192.0.0.2/29 fe80::2, default via fe80::1;
+#         Jool: 192.0.0.1 <-> fd64::2 (EAMT), the rest <-> exit prefix (pool6)
+clat_setup() {
+    local mac_main mac_ns
+    [ -d /sys/module/jool_siit ] || modprobe jool_siit >/dev/null 2>&1 \
+        || { log "The jool_siit kernel module is missing"; return 1; }
+    ip netns list >/dev/null 2>&1 \
+        || { log "ip has no netns support (busybox ip?), the CLAT needs ip-tiny or ip-full"; return 1; }
+    if ! ip netns exec "$NS" ip link show "$NS_DEV" >/dev/null 2>&1 \
+        || ! ip -d link show "$CLAT_DEV" 2>/dev/null | grep -q veth; then
+        clat_remove
+        ip netns add "$NS" || return 1
+        ip link add "$CLAT_DEV" type veth peer name "$NS_DEV" netns "$NS" || return 1
+    fi
+    ip link set "$CLAT_DEV" mtu "$CLAT_MTU" up
+    ip -4 addr replace "${CLAT_HOST4}/29" dev "$CLAT_DEV"
+    ip -6 addr replace "${LINK6_MAIN}/64" dev "$CLAT_DEV" nodad
+    ip netns exec "$NS" sh -c "
+        echo 1 > /proc/sys/net/ipv4/ip_forward
+        echo 1 > /proc/sys/net/ipv6/conf/all/forwarding
+        ip link set lo up
+        ip link set $NS_DEV mtu $CLAT_MTU up
+        ip -4 addr replace ${NS_HOST4}/29 dev $NS_DEV
+        ip -6 addr replace ${LINK6_NS}/64 dev $NS_DEV nodad
+        ip -6 route replace default via $LINK6_MAIN dev $NS_DEV
+    " || return 1
+    # Static neighbours: the clearnet zone rejects input, NDP from NS included
+    mac_main=$(cat "/sys/class/net/$CLAT_DEV/address")
+    mac_ns=$(ip netns exec "$NS" cat "/sys/class/net/$NS_DEV/address")
+    [ -n "$mac_main" ] && [ -n "$mac_ns" ] || return 1
+    ip -6 neigh replace "$LINK6_NS" lladdr "$mac_ns" dev "$CLAT_DEV" nud permanent
+    ip netns exec "$NS" ip -6 neigh replace "$LINK6_MAIN" lladdr "$mac_main" dev "$NS_DEV" nud permanent
+    ip -6 route replace "$CLAT_NET6" via "$LINK6_NS" dev "$CLAT_DEV"
+    clat_running || clat_instance
 }
 
 # Client IPv4 goes nowhere: the kill switch. Used at start and whenever no
@@ -183,37 +228,37 @@ route_block() {
     ip -4 route replace unreachable default table "$TABLE"
 }
 
-# Creates the persistent tun device, its addresses and the policy routing.
-# Everything is idempotent: the service may be restarted at any time.
+# Creates the CLAT and the policy routing. Everything is idempotent: the
+# service may be restarted at any time.
 setup() {
-    write_conf ""
-    ip link show "$CLAT_DEV" >/dev/null 2>&1 || tayga -c "$CONF" --mktun >/dev/null 2>&1
-    ip link set "$CLAT_DEV" mtu "$CLAT_MTU" up
-    ip -4 addr replace "${CLAT_HOST4}/29" dev "$CLAT_DEV"
-    ip -6 route replace "$CLAT_NET6" dev "$CLAT_DEV"
+    clat_setup || log "Cannot set up the CLAT, clients have no clearnet through the exits"
     ip -4 rule del priority "$RULE_PRIO" 2>/dev/null
     ip -4 rule del priority "$WAN_PRIO" 2>/dev/null
     ip -4 rule add iif "$CLIENT_DEV" lookup "$TABLE" priority "$RULE_PRIO"
     route_block
 }
 
-# Points the CLAT at exit number $1: restarts tayga with its prefix, routes
-# the client IPv4 into it and moves the DNS servers there. Running
-# connections break, as the public IPv4 address changes anyway.
+# Points the CLAT at exit number $1, routes the client IPv4 into it and moves
+# the DNS servers there. The prefix is changed in place (if this Jool cannot,
+# the instance is recreated with it). Running connections break, as the
+# public IPv4 address changes anyway.
 activate() {
     local e a p r
     eval "e=\$exit_$1 a=\$addr_$1 p=\$prefix_$1 r=\$rtt_$1"
-    tayga_stop
-    write_conf "$p"
-    tayga -n -c "$CONF" -p "$PIDFILE" >/dev/null 2>&1 &
-    ip -4 route replace default dev "$CLAT_DEV" table "$TABLE"
+    clat_running || clat_setup || log "Cannot set up the CLAT"
+    if ! jool_ns global update pool6 "${p}/96" >/dev/null 2>&1; then
+        jool_ns instance remove >/dev/null 2>&1
+        clat_instance "$p" || log "Cannot point the CLAT at ${p}/96"
+    fi
+    ip -4 route replace default via "$NS_HOST4" dev "$CLAT_DEV" table "$TABLE"
     write_dns "$p"
     [ "$e" = "$a" ] || e="$e = $a"
     log "Using exit $e (NAT64 prefix ${p}/96, ${r:-?} ms)"
 }
 
+# No exit: the client IPv4 goes nowhere. The CLAT stays, without a route
+# nothing reaches it.
 deactivate() {
-    tayga_stop
     route_block
     active=0
 }
@@ -302,10 +347,11 @@ resolve_exits() {
     done
 }
 
-# TERM: a restart or a stop. The routing stays until setup() of the next run
-# or cleanup() replaces it: without tayga the client IPv4 goes nowhere.
+# TERM: a restart or a stop. The client IPv4 goes nowhere until setup() of the
+# next run or cleanup() replaces the routing. The CLAT itself stays, so that a
+# restart keeps it.
 shutdown() {
-    tayga_stop
+    route_block
     rm -f "$STATUS_FILE"
     log "Stopped"
     exit 0
@@ -322,12 +368,11 @@ write_status() {
 # was stopped for good (another clearnet mode). In the exit mode client IPv4
 # still has no way out: the firewall has no LAN -> WAN forwarding then.
 cleanup() {
-    tayga_stop
     rm -f "$STATUS_FILE"
     ip -4 rule del priority "$RULE_PRIO" 2>/dev/null
     ip -4 rule del priority "$WAN_PRIO" 2>/dev/null
     ip -4 route flush table "$TABLE" 2>/dev/null
-    ip link del "$CLAT_DEV" 2>/dev/null
+    clat_remove
     if [ -s "$DNS_FILE" ]; then
         : > "$DNS_FILE"
         killall -HUP dnsmasq 2>/dev/null
@@ -417,7 +462,7 @@ run() {
 
         if [ "$active" -gt 0 ]; then
             eval "ok=\$ok_$active"
-            if [ "$ok" = 1 ] && tayga_running; then
+            if [ "$ok" = 1 ] && clat_running; then
                 fails=0
             else
                 fails=$((fails + 1))

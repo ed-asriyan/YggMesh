@@ -417,9 +417,9 @@ build_firewall() {
     esac
     case "$MODE" in
         exit|wan_exit)
-            # Client IPv4 -> CLAT (tayga, run by yggmesh-clearnet) -> exit NAT64
+            # Client IPv4 -> CLAT (Jool, set up by yggmesh-clearnet) -> exit NAT64
             uci batch <<-FW_CLEARNET_EOF
-		# Zone clearnet: the CLAT tun device created by yggmesh-clearnet
+		# Zone clearnet: the veth device into the CLAT namespace (yggmesh-clearnet)
 		set firewall.clearnet_zone=zone
 		set firewall.clearnet_zone.name='clearnet'
 		add_list firewall.clearnet_zone.device='clat'
