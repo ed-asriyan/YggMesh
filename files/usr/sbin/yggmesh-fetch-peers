@@ -310,7 +310,7 @@ fetch_instances() {
     for base in $INSTANCES; do
         n=$((n + 1))
         : > "$WORK/inst.$n"
-        curl -fsS --max-time 20 "$base/api/v1/peers?status=up&is_network=false" 2>/dev/null \
+        uclient-fetch -q -T 20 -O - "$base/api/v1/peers?status=up&is_network=false" 2>/dev/null \
             | jsonfilter -e '@.peers[*].uri' 2>/dev/null \
             | while read -r uri; do
                 for proto in $PROTOS; do

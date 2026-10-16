@@ -34,10 +34,10 @@
 #   yggmesh-clearnet cleanup      remove the CLAT and its routing, after the service stops
 #   yggmesh-clearnet prefix ADDR  print the NAT64 prefix of exit ADDR, e.g. 300:1:2:3::
 #
-# Exit selection. Every CHECK_INTERVAL seconds every exit is checked: an HTTP
+# Exit selection. Every CHECK_INTERVAL seconds every exit is checked: a ping
 # request to 1.1.1.1 or 8.8.8.8 through the exit's NAT64 prefix, sent natively
 # over Yggdrasil from the node address. It covers the Yggdrasil path, the
-# exit's allow list, its NAT64 and its internet access, and its TCP handshake
+# exit's allow list, its NAT64 and its internet access, and its round trip
 # time is the exit's latency (smoothed: rtt = (3 * rtt + sample) / 4).
 #   - without an active exit the fastest healthy one is used (the configured
 #     order only breaks ties);
@@ -263,27 +263,28 @@ deactivate() {
     active=0
 }
 
-# Checks exit prefix $1: an HTTP answer (any status) from 1.1.1.1 or 8.8.8.8
-# through it. On success prints the TCP handshake time in ms and returns 0.
+# Checks exit prefix $1: a ping answer from 1.1.1.1 or 8.8.8.8 through it.
+# On success prints the round trip time in ms and returns 0.
 check() {
     local p="$1" t ip
     [ -n "$p" ] || return 1
     for ip in 101:101 808:808; do
-        if t=$(curl -s -o /dev/null -w '%{time_connect}' --connect-timeout 5 --max-time 10 "http://[${p}${ip}]/"); then
-            echo "$t" | awk '{ printf "%d\n", $1 * 1000 + 0.5 }'
+        t=$(ping -6 -c 1 -W 5 "${p}${ip}" 2>/dev/null | sed -n 's/.* time=\([0-9.]*\) ms.*/\1/p')
+        if [ -n "$t" ]; then
+            echo "$t" | awk '{ printf "%d\n", $1 + 0.5 }'
             return 0
         fi
     done
     return 1
 }
 
-# Checks WAN: an HTTP answer from 1.1.1.1 or 8.8.8.8 sent by the node itself.
+# Checks WAN: a ping answer from 1.1.1.1 or 8.8.8.8 sent by the node itself.
 # Returns 2 without a default route (nothing to wait for), 1 on failure.
 check_wan() {
     local ip
     [ -n "$(ip -4 route show default)" ] || return 2
     for ip in 1.1.1.1 8.8.8.8; do
-        curl -s -o /dev/null --connect-timeout 5 --max-time 10 "http://${ip}/" && return 0
+        ping -4 -c 1 -W 5 "$ip" >/dev/null 2>&1 && return 0
     done
     return 1
 }

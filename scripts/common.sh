@@ -35,22 +35,19 @@ download_builder() {
 # Shared Configuration & Packages
 # ============================================================================
 
-YGGMESH_BUILD="25"
+YGGMESH_BUILD="26"
 FIRMWARE_VERSION="${OPENWRT_VERSION}-ym${YGGMESH_BUILD}"
 
 COMMON_PACKAGES=(
     yggdrasil
-    luci
+    # LuCI without the package manager page (apk still works from the shell)
+    luci-light
     luci-proto-yggdrasil
-    tcpdump
-    iperf3
     iwinfo
-    curl
-    ca-bundle
-    # The in-kernel CLAT, see yggmesh-clearnet. ip-tiny: busybox ip has no
-    # netns and no veth (it used to come in as a dependency of tayga)
-    kmod-jool-netfilter
-    jool-tools-netfilter
+    # The in-kernel CLAT, see yggmesh-clearnet. yggmesh-jool-siit: jool_siit
+    # alone, see make_jool_siit_package. ip-tiny: busybox ip has no netns and
+    # no veth. (uclient-fetch, libustream-mbedtls and ca-bundle are defaults.)
+    yggmesh-jool-siit
     kmod-veth
     ip-tiny
 )
@@ -58,6 +55,92 @@ COMMON_PACKAGES=(
 # ============================================================================
 # Shared Functions
 # ============================================================================
+
+# Prints error $* and exits. On GitHub Actions it is also an annotation of the
+# run (newlines encoded), readable without the log.
+fail() {
+    echo "Error: $*" >&2
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        local m="$*"
+        m=${m//'%'/'%25'}
+        m=${m//$'\n'/'%0A'}
+        echo "::error::$m"
+    fi
+    exit 1
+}
+
+# Any other failed command of a build script becomes an annotation as well
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    set -E
+    trap 'echo "::error::${BASH_SOURCE[0]##*/}:${LINENO}: ${BASH_COMMAND} (exit $?)"' ERR
+fi
+
+# Runs $@; on failure fails with its output
+run() {
+    local out
+    out=$("$@" 2>&1) || fail "$* failed:"$'\n'"$(printf '%s\n' "$out" | tail -n 30)"
+    [ -z "$out" ] || printf '%s\n' "$out"
+}
+
+# Puts yggmesh-jool-siit into the Image Builder's local packages/ directory:
+# jool_siit and the GRO hotplug script of jool-tools-netfilter, depending on
+# libnl-genl only. jool-tools-netfilter also brings jool and joold and, through
+# the libnl meta package, libnl-route, libnl-nf and libnl-cli: ~700 KiB
+# unpacked that the CLAT does not use, too much for 16 MB NOR devices.
+make_jool_siit_package() {
+    local ib arch work pkg ver lib
+    ib="$(get_builder_dir "$1")"
+    arch=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"$/\1/p' "$ib/.config")
+    [ -n "$arch" ] || fail "no CONFIG_TARGET_ARCH_PACKAGES in $ib/.config"
+    work=$(mktemp -d)
+    mkdir -p "$work/root/etc/apk" "$work/cache" "$work/pkg" "$work/x" "$work/files/usr/bin" "$ib/packages"
+
+    ib_apk() {
+        run env STAGING_DIR_HOST="$ib/staging_dir/host" \
+            "$ib/staging_dir/host/bin/fakeroot" "$ib/staging_dir/host/bin/apk" \
+            --root "$work/root" --keys-dir "$ib/keys" --no-logfile \
+            --repositories-file "$ib/repositories" --cache-dir "$work/cache" "$@"
+    }
+    ib_apk add --arch "$arch" --initdb
+    ib_apk fetch --arch "$arch" --output "$work/pkg" jool-tools-netfilter
+    pkg=$(ls "$work"/pkg/jool-tools-netfilter-*.apk 2>/dev/null) \
+        || fail "apk fetch left no jool-tools-netfilter package in $work/pkg"
+    ver=${pkg##*/jool-tools-netfilter-}
+    ver=${ver%.apk}
+    # Packages are not signed one by one, the index is: fetch has checked the
+    # file against the signed index already
+    ib_apk --allow-untrusted extract --no-chown --destination "$work/x" "$pkg"
+    [ -x "$work/x/usr/bin/jool_siit" ] || fail "no usr/bin/jool_siit in $pkg: $(cd "$work/x" && find . | head -20 | tr '\n' ' ')"
+
+    cp -p "$work/x/usr/bin/jool_siit" "$work/files/usr/bin/"
+    if [ -d "$work/x/etc/hotplug.d" ]; then
+        mkdir -p "$work/files/etc"
+        cp -rp "$work/x/etc/hotplug.d" "$work/files/etc/"
+    fi
+    # jool_siit must need nothing of libnl beyond libnl-genl (and libnl-core)
+    for lib in $(grep -a -o 'libnl-[a-z-]*3\.so' "$work/files/usr/bin/jool_siit" | sort -u); do
+        case "$lib" in
+            libnl-3.so|libnl-genl-3.so) ;;
+            *) fail "jool_siit $ver needs $lib, yggmesh-jool-siit must depend on it" ;;
+        esac
+    done
+
+    rm -f "$ib"/packages/yggmesh-jool-siit-*.apk
+    # OpenWrt's fakeroot finds its library through STAGING_DIR_HOST
+    run env STAGING_DIR_HOST="$ib/staging_dir/host" \
+        "$ib/staging_dir/host/bin/fakeroot" "$ib/staging_dir/host/bin/apk" mkpkg \
+        --info "name:yggmesh-jool-siit" \
+        --info "version:$ver" \
+        --info "arch:$arch" \
+        --info "description:jool_siit of jool-tools-netfilter $ver, without jool, joold and the full libnl" \
+        --info "license:GPL-2.0-only" \
+        --info "url:https://nicmx.github.io/Jool/" \
+        --info "depends:libnl-genl kmod-jool-netfilter ethtool" \
+        --files "$work/files" \
+        --output "$ib/packages/yggmesh-jool-siit-$ver.apk"
+    rm -rf "$work"
+    echo "Repackaged jool_siit $ver as yggmesh-jool-siit"
+}
 
 validate_inputs() {
     # Fail early before downloading anything if required inputs are missing.

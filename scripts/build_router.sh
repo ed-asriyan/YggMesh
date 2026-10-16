@@ -70,6 +70,10 @@ device_config() {
             OPENWRT_TARGET="mediatek/filogic"
             PROFILE="cudy_wr3000-v1"
             PORT_MAP="wan:wan lan1:lan lan2:lan lan3:lan"
+            # 16 MB SPI-NOR: the settings (JFFS2 rootfs_data) get what the image
+            # leaves. PPPoE is never used by YggMesh (WAN is DHCP): drop it here.
+            FIRMWARE_PARTITION_SIZE=$((0xf10000))
+            DEVICE_PACKAGES="-ppp -ppp-mod-pppoe"
             ;;
         *)
             return 1
@@ -117,7 +121,7 @@ build_firmware() {
     dir="$(get_builder_dir "$OPENWRT_TARGET")"
 
     local packages
-    packages="${COMMON_PACKAGES[*]} ${PACKAGES_EXTRA:-}"
+    packages="${COMMON_PACKAGES[*]} ${DEVICE_PACKAGES:-} ${PACKAGES_EXTRA:-}"
 
     # Create temp FILES dir with version/profile and inputs
     local tmpfiles
@@ -135,6 +139,8 @@ build_firmware() {
 
     rm -rf "$tmpfiles"
 
+    check_settings_space
+
     # Ensure output files are world-readable (served by nginx)
     chmod 644 "${PROJECT_DIR}/output/"* 2>/dev/null || true
 
@@ -146,6 +152,26 @@ build_firmware() {
 
     # Update manifest.json with this device's sysupgrade info
     update_manifest
+}
+
+# NOR devices keep the settings in a JFFS2 partition made of the firmware
+# partition's space after the image. JFFS2 refuses to mount fewer than 5 erase
+# blocks (64 KiB on NOR): the node then runs on a RAM overlay, loses its
+# settings on reboot and hangs on the first boot after a flash with kept
+# settings. Fail the build unless at least 512 KiB are left.
+check_settings_space() {
+    local img size free min=$((512 * 1024))
+
+    [ -n "${FIRMWARE_PARTITION_SIZE:-}" ] || return 0
+    img=$(ls -t "${PROJECT_DIR}/output/"*"${PROFILE}"*-sysupgrade.bin 2>/dev/null | head -1 || true)
+    [ -n "$img" ] || return 0
+    size=$(stat -c %s "$img")
+    free=$((FIRMWARE_PARTITION_SIZE - size))
+    echo "Settings space (rootfs_data): $((free / 1024)) KiB of ${FIRMWARE_PARTITION_SIZE} bytes"
+    [ -z "${GITHUB_ACTIONS:-}" ] || echo "::notice::${PROFILE}: $((free / 1024)) KiB left for the settings"
+    if [ "$free" -lt "$min" ]; then
+        fail "the image leaves only $((free / 1024)) KiB for the settings, at least $((min / 1024)) KiB are needed. Drop packages."
+    fi
 }
 
 update_manifest() {
@@ -234,4 +260,5 @@ echo ""
 
 validate_inputs
 download_builder "$OPENWRT_TARGET"
+make_jool_siit_package "$OPENWRT_TARGET"
 build_firmware

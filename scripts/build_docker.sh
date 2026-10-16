@@ -125,6 +125,7 @@ echo ""
 
 validate_inputs
 download_builder "$OPENWRT_TARGET"
+make_jool_siit_package "$OPENWRT_TARGET"
 build_rootfs
 build_docker_image
 
