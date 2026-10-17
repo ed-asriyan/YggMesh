@@ -14,8 +14,8 @@ on:
         type: string
       default_root_password:
         description: Initial root password
-        required: true
-        default: yggmesh
+        required: false
+        default: "yggmesh"
         type: string
       yggpeers_instances:
         description: Space-separated base URLs of yggpeers instances (https://gitfield.org/fsky/yggpeers) used to auto-discover public Yggdrasil peers. A peer is used only if a majority of the reachable instances report it as up. Leave empty to disable public peers discovery and rely only on multicast discovery.
@@ -40,7 +40,7 @@ on:
       private_ssid:
         description: Client AP SSID for end-user devices
         required: false
-        default: YggMesh
+        default: "YggMesh"
         type: string
       clearnet_exits:
         description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used.
@@ -50,7 +50,7 @@ on:
       clearnet_mode:
         description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. Needs clearnet_exits for exit and wan_exit."
         required: false
-        default: wan_exit
+        default: "wan_exit"
         type: string
   workflow_dispatch:
     inputs:
@@ -75,7 +75,7 @@ on:
       default_root_password:
         description: Initial root password
         required: true
-        default: yggmesh
+        default: "yggmesh"
         type: string
       yggpeers_instances:
         description: Space-separated base URLs of yggpeers instances (https://gitfield.org/fsky/yggpeers) used to auto-discover public Yggdrasil peers. A peer is used only if a majority of the reachable instances report it as up. Leave empty to disable public peers discovery and rely only on multicast discovery.
@@ -84,23 +84,23 @@ on:
         type: string
       yggpeers_count:
         description: Target number of global Yggdrasil peers per node with internet on WAN. Peers configured manually count towards this number.
-        required: false
+        required: true
         default: "3"
         type: string
       yggpeers_check_interval:
         description: Minutes between checks of the global peers on a node (1-59, or a multiple of 60 up to 1380). Peers that are down are replaced at the next check.
-        required: false
+        required: true
         default: "30"
         type: string
       yggpeers_rerank_interval:
         description: Days between forced refreshes of the global peers list on a node (1-90), even if all current peers are alive.
-        required: false
+        required: true
         default: "7"
         type: string
       private_ssid:
         description: Client AP SSID for end-user devices
-        required: false
-        default: YggMesh
+        required: true
+        default: "YggMesh"
         type: string
       clearnet_exits:
         description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used.
@@ -109,8 +109,8 @@ on:
         type: string
       clearnet_mode:
         description: "What clients' IPv4 uses: wan (directly), exit (only the exits, never WAN), wan_exit (WAN while it works, the exits otherwise) or off. Needs clearnet_exits for exit and wan_exit."
-        required: false
-        default: wan_exit
+        required: true
+        default: "wan_exit"
         type: choice
         options:
           - wan
@@ -140,12 +140,12 @@ jobs:
           YGGDRASIL_DNS: ${{ inputs.yggdrasil_dns }}
           DEFAULT_ROOT_PASSWORD: ${{ inputs.default_root_password }}
           YGGPEERS_INSTANCES: ${{ inputs.yggpeers_instances }}
-          YGGPEERS_COUNT: ${{ inputs.yggpeers_count || '3' }}
-          YGGPEERS_CHECK_INTERVAL: ${{ inputs.yggpeers_check_interval || '30' }}
-          YGGPEERS_RERANK_INTERVAL: ${{ inputs.yggpeers_rerank_interval || '7' }}
-          PRIVATE_SSID: ${{ inputs.private_ssid || 'YggMesh' }}
+          YGGPEERS_COUNT: ${{ inputs.yggpeers_count }}
+          YGGPEERS_CHECK_INTERVAL: ${{ inputs.yggpeers_check_interval }}
+          YGGPEERS_RERANK_INTERVAL: ${{ inputs.yggpeers_rerank_interval }}
+          PRIVATE_SSID: ${{ inputs.private_ssid }}
           CLEARNET_EXITS: ${{ inputs.clearnet_exits }}
-          CLEARNET_MODE: ${{ inputs.clearnet_mode || 'wan_exit' }}
+          CLEARNET_MODE: ${{ inputs.clearnet_mode }}
         run: |
           chmod +x scripts/build_router.sh
           ./scripts/build_router.sh "${{ inputs.device }}"
