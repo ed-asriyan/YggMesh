@@ -18,8 +18,10 @@
 # Steps:
 #   1. Validate the settings. Any invalid value: log it, change nothing, exit 1.
 #   2. Rebuild the owned sections:
-#        network   loopback, br-private (private_dev, private), mesh, wan,
-#                  yggdrasil, ygg_iface; the default lan and br-lan are removed
+#        network   loopback, br-private (private_dev, private), mesh, wan;
+#                  the default lan and br-lan are removed, and so are the
+#                  yggdrasil interface and the yggdrasil_yggdrasil_* sections
+#                  of older firmware
 #        wireless  every wifi-iface (mesh and client APs), radio channels
 #        firewall  every zone, forwarding, rule, redirect and nat
 #        dhcp      private, the dnsmasq upstream servers; lan is removed
@@ -27,12 +29,15 @@
 #      networks on top (see run_hooks)
 #   3. Commit, then reload only what really changed (the config files are
 #      compared before and after): netifd, fw4, dnsmasq and odhcpd. Yggdrasil
-#      restarts only when its own settings change: that drops every mesh link.
+#      (/etc/init.d/yggdrasil, its configuration is generated there) restarts
+#      only when its own settings change: that drops every mesh link.
 #   4. Start, reload or stop yggmesh-clearnet for the clearnet mode, and run
 #      yggmesh-fetch-peers in the background (it follows the discovery
 #      settings by itself).
 #
 # Logs: logread -e yggmesh
+
+. /usr/share/yggmesh/ygg.sh
 
 TAG="yggmesh"
 LOCK="/var/lock/yggmesh-apply.lock"
@@ -41,7 +46,8 @@ DNS_FILE="/etc/yggmesh/clearnet-dns.conf"
 
 # 802.11s mesh identifier: every YggMesh node joins the same mesh
 MESH_ID="yggmesh/mesh"
-# Yggdrasil multicast peering port, the same on every YggMesh node
+# Yggdrasil multicast peering port, the same on every YggMesh node (also in
+# /etc/init.d/yggdrasil)
 YGG_PORT=17000
 # Router IPv4 address for the clients
 PRIV_IP="10.0.0.1"
@@ -89,13 +95,6 @@ in_range() {
     [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]
 }
 
-# Returns 0 if $1 is a clearnet exit: a Yggdrasil address in 200::/8 or a
-# domain name
-valid_exit() {
-    [ -n "$(/usr/sbin/yggmesh-clearnet prefix "$1")" ] && return 0
-    echo "$1" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$'
-}
-
 # ----------------------------------------------------------------------------
 # 1. Settings
 # ----------------------------------------------------------------------------
@@ -128,21 +127,23 @@ read_settings() {
     for d in $YGG_DNS; do
         is_ipv6 "$d" || fail "yggdrasil.dns '$d' is not an IPv6 address"
     done
+    YGG_PUBKEY=$(pubkey_of "$YGG_KEY")
 
     case "$MODE" in
         off|wan|wan_exit|exit) ;;
         *) fail "clearnet.mode '$MODE' is not off, wan, wan_exit or exit" ;;
     esac
     for e in $EXITS; do
-        valid_exit "$e" || fail "clearnet.exit '$e' is not a Yggdrasil address (200::/8) or a domain name"
+        is_pubkey "$e" || fail "clearnet.exit '$e' is not a public key (64 hex digits)"
+        [ "$e" != "$YGG_PUBKEY" ] || fail "clearnet.exit '$e' is the key of this node"
     done
 
     # The node address and its routed /64 for the clients
     local tmp
     tmp=$(mktemp)
-    echo "{ PrivateKey: \"${YGG_KEY}\" }" > "$tmp"
-    YGG_ADDR=$(yggdrasil -address -useconffile "$tmp" 2>/dev/null)
-    YGG_SUBNET=$(yggdrasil -subnet -useconffile "$tmp" 2>/dev/null)
+    echo "private_key = \"${YGG_KEY}\"" > "$tmp"
+    YGG_ADDR=$(yggdrasil -c "$tmp" -a 2>/dev/null)
+    YGG_SUBNET=$(yggdrasil -c "$tmp" -s 2>/dev/null)
     rm -f "$tmp"
     # 300:xxxx:xxxx:xxxx::/64 -> 300:xxxx:xxxx:xxxx
     YGG_PREFIX="${YGG_SUBNET%%::*}"
@@ -170,9 +171,17 @@ build_network() {
     [ -z "$lan_ports" ] && [ "$wan_dev" != "eth0" ] && lan_ports="eth0"
     [ -z "$wan_dev" ] && wan_dev="eth1"
 
-    # The default OpenWrt br-lan/lan conflicts with br-private
+    # The default OpenWrt br-lan/lan conflicts with br-private. The
+    # luci-proto-yggdrasil sections of older firmware (multicast, peers) mean
+    # nothing to Yggdrasil-ng, its configuration is /etc/init.d/yggdrasil's.
+    # Its TUN device is no netifd interface at all: netifd would reset the
+    # IPv6 of the device whenever Yggdrasil restarts, wiping its 200::/7
+    # address. The firewall zone uses the device itself.
     uci -q delete network.lan
-    for sec in $(uci -q show network | sed -n "s/^network\.\([^.]*\)\.name='br-lan'$/\1/p"); do
+    uci -q delete network.yggdrasil
+    for sec in $(uci -q show network | sed -n \
+        -e "s/^network\.\([^.]*\)\.name='br-lan'$/\1/p" \
+        -e "s/^network\.\([^.=]*\)=yggdrasil_yggdrasil_.*/\1/p"); do
         uci -q delete "network.$sec"
     done
 
@@ -209,19 +218,7 @@ build_network() {
 	set network.wan=interface
 	set network.wan.device='${wan_dev}'
 	set network.wan.proto='dhcp'
-
-	# yggdrasil: the overlay, peering over multicast on every interface
-	set network.yggdrasil=interface
-	set network.yggdrasil.proto='yggdrasil'
-	set network.yggdrasil.node_info_privacy='0'
-	set network.ygg_iface=yggdrasil_yggdrasil_interface
-	delete network.ygg_iface.interface
-	add_list network.ygg_iface.interface='.+'
-	set network.ygg_iface.beacon='1'
-	set network.ygg_iface.listen='1'
-	set network.ygg_iface.port='${YGG_PORT}'
 	NET_EOF
-    uci set network.yggdrasil.private_key="$YGG_KEY"
 
     # LAN ports in the private bridge (DSA: lan1-4, non-DSA: eth0)
     for port in $lan_ports; do
@@ -380,13 +377,13 @@ build_firewall() {
 	set firewall.allow_ping.icmp_type='echo-request'
 	set firewall.allow_ping.target='ACCEPT'
 
-	# Zone yggdrasil
+	# Zone yggdrasil: the TUN device of Yggdrasil-ng (/etc/init.d/yggdrasil)
 	set firewall.ygg_zone=zone
 	set firewall.ygg_zone.name='yggdrasil'
 	set firewall.ygg_zone.input='REJECT'
 	set firewall.ygg_zone.output='ACCEPT'
 	set firewall.ygg_zone.forward='REJECT'
-	add_list firewall.ygg_zone.network='yggdrasil'
+	add_list firewall.ygg_zone.device='${YGG_DEV}'
 
 	set firewall.allow_icmpv6_ygg=rule
 	set firewall.allow_icmpv6_ygg.name='Allow ICMPv6 Ygg'
@@ -417,39 +414,12 @@ build_firewall() {
     esac
     case "$MODE" in
         exit|wan_exit)
-            # Client IPv4 -> CLAT (Jool, set up by yggmesh-clearnet) -> exit NAT64
-            uci batch <<-FW_CLEARNET_EOF
-		# Zone clearnet: the veth device into the CLAT namespace (yggmesh-clearnet)
-		set firewall.clearnet_zone=zone
-		set firewall.clearnet_zone.name='clearnet'
-		add_list firewall.clearnet_zone.device='clat'
-		set firewall.clearnet_zone.input='REJECT'
-		set firewall.clearnet_zone.output='ACCEPT'
-		set firewall.clearnet_zone.forward='REJECT'
-		# NAT44: clients 10.0.0.x -> the single CLAT address 192.0.0.1
-		set firewall.clearnet_zone.masq='1'
-
-		# Client IPv4 -> CLAT
-		set firewall.fwd_lan_clearnet=forwarding
-		set firewall.fwd_lan_clearnet.src='lan'
-		set firewall.fwd_lan_clearnet.dest='clearnet'
-		set firewall.fwd_lan_clearnet.family='ipv4'
-
-		# Translated IPv6 (fd64::2) -> Yggdrasil
-		set firewall.fwd_clearnet_ygg=forwarding
-		set firewall.fwd_clearnet_ygg.src='clearnet'
-		set firewall.fwd_clearnet_ygg.dest='yggdrasil'
-		set firewall.fwd_clearnet_ygg.family='ipv6'
-
-		# NAT66: translated traffic leaves from the node's own 200::/8 address,
-		# the address the exits allow. Unmasqueraded fd64:: would be dropped by Yggdrasil.
-		set firewall.clearnet_nat66=nat
-		set firewall.clearnet_nat66.name='Clearnet-NAT66'
-		set firewall.clearnet_nat66.family='ipv6'
-		set firewall.clearnet_nat66.src='yggdrasil'
-		set firewall.clearnet_nat66.src_ip='fd64::/64'
-		set firewall.clearnet_nat66.target='MASQUERADE'
-		FW_CLEARNET_EOF
+            # Client IPv4 -> Yggdrasil CKR -> the active exit (yggmesh-clearnet
+            # routes it; lan -> yggdrasil is forwarded above). NAT44: clients
+            # 10.0.0.x -> the node's IPv4 address on the TUN device, the only
+            # address the exits accept from this node. The zone's IPv6 (the
+            # clients' 300::/64) is not masqueraded.
+            uci set firewall.ygg_zone.masq='1'
             ;;
     esac
 }
@@ -490,7 +460,7 @@ build_dhcp() {
         uci add_list dhcp.@dnsmasq[0].server="/ygg/$d"
         uci add_list dhcp.private.dns="$d"
     done
-    # With exits yggmesh-clearnet also points dnsmasq at 1.1.1.1 and 8.8.8.8
+    # With exits yggmesh-clearnet also points dnsmasq at 1.0.0.1 and 8.8.4.4
     # through the active exit (servers-file, re-read on SIGHUP), so nodes
     # without WAN resolve clearnet names. The plain servers stay: the node
     # itself needs them over WAN to find its Yggdrasil peers.
@@ -509,7 +479,7 @@ build_dhcp() {
 # AP): since every run starts from the rebuilt sections, a hook sets
 # everything it needs on every run. Its changes are committed and reloaded
 # with the rest. It sees the settings ($SSID, $MODE, $YGG_ADDR, $YGG_PREFIX,
-# ...) and must not exit. The directory is kept across flashes
+# $YGG_PUBKEY, ...) and must not exit. The directory is kept across flashes
 # (/etc/sysupgrade.conf).
 run_hooks() {
     local hook
@@ -530,13 +500,11 @@ sum_config() {
 }
 
 apply() {
-    local c sum changed="" ygg_key_before ygg_iface_before
+    local c sum changed=""
 
     for c in $CONFIGS; do
         eval "sum_$c=\$(sum_config $c)"
     done
-    ygg_key_before=$(uci -q show network.yggdrasil)
-    ygg_iface_before=$(uci -q show network.ygg_iface)
 
     build_network
     build_wireless
@@ -552,6 +520,7 @@ apply() {
 
     /etc/init.d/cron enable
     /etc/init.d/yggmesh enable
+    /etc/init.d/yggdrasil enable
     if { [ "$MODE" = "exit" ] || [ "$MODE" = "wan_exit" ]; } && [ -n "$EXITS" ]; then
         /etc/init.d/yggmesh-clearnet enable
     else
@@ -559,20 +528,16 @@ apply() {
     fi
 
     log "Settings applied, changed:${changed:- nothing}"
-    log "Yggdrasil: ${YGG_ADDR}, clients get ${YGG_PREFIX}::/64; Wi-Fi '${SSID}' (${ENCRYPTION}); clearnet: ${MODE}${EXITS:+ (exits: ${EXITS})}"
+    log "Yggdrasil: ${YGG_ADDR} (key ${YGG_PUBKEY}), clients get ${YGG_PREFIX}::/64; Wi-Fi '${SSID}' (${ENCRYPTION}); clearnet: ${MODE}${EXITS:+ (exits: ${EXITS})}"
     [ "$BOOT" = 1 ] && return 0
 
     # netifd reloads only the interfaces whose sections changed. Yggdrasil
-    # restarts with its interface section (the key), but its multicast
-    # settings are a separate section netifd does not compare: restart it by
-    # hand when only those changed.
+    # regenerates its configuration and restarts only if it changed (the key,
+    # the clearnet mode or exits).
     case "$changed" in
         *network*|*wireless*) /etc/init.d/network reload ;;
     esac
-    if [ "$ygg_key_before" = "$(uci -q show network.yggdrasil)" ] \
-        && [ "$ygg_iface_before" != "$(uci -q show network.ygg_iface)" ]; then
-        ifup yggdrasil
-    fi
+    /etc/init.d/yggdrasil reload
     case "$changed" in
         *firewall*) /etc/init.d/firewall reload ;;
     esac

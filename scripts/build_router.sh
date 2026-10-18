@@ -13,7 +13,7 @@
 #   YGGPEERS_COUNT         Target number of global peers per node with internet on WAN (1-10)
 #   YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380
 #   YGGPEERS_RERANK_INTERVAL Days between forced refreshes of the peers list (1-90)
-#   CLEARNET_EXITS         Space-separated Yggdrasil addresses or domain names of clearnet exits (can be empty)
+#   CLEARNET_EXITS         Space-separated public keys of clearnet exits (can be empty)
 #   CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit or exit
 #
 # These are the defaults of the user settings on a fresh install; flashing
@@ -111,7 +111,7 @@ usage() {
     echo "  YGGPEERS_COUNT         Target number of global peers per node (1-10)"
     echo "  YGGPEERS_CHECK_INTERVAL Minutes between peer checks: 1-59 or a multiple of 60 up to 1380"
     echo "  YGGPEERS_RERANK_INTERVAL Days between forced refreshes of the peers list (1-90)"
-    echo "  CLEARNET_EXITS         Space-separated Yggdrasil addresses or domain names of clearnet exits (can be empty)"
+    echo "  CLEARNET_EXITS         Space-separated public keys of clearnet exits (can be empty)"
     echo "  CLEARNET_MODE          Clients' IPv4: off, wan, wan_exit or exit"
     exit 1
 }
@@ -126,6 +126,7 @@ build_firmware() {
     # Create temp FILES dir with version/profile and inputs
     local tmpfiles
     tmpfiles=$(prepare_files_dir "$PROFILE" "$PORT_MAP")
+    add_yggdrasil "$OPENWRT_TARGET" "$tmpfiles"
 
     echo "Building firmware for profile: ${PROFILE}"
     echo "Packages: ${packages}"
@@ -260,5 +261,4 @@ echo ""
 
 validate_inputs
 download_builder "$OPENWRT_TARGET"
-make_jool_siit_package "$OPENWRT_TARGET"
 build_firmware
