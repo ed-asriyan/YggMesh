@@ -8,7 +8,7 @@ Yggdrasil over WiFi Mesh
 This project builds a mesh network for cases where normal network infrastructure is unavailable or unreliable.
 
 - Routers connect to each other over [802.11s WiFi mesh](https://en.wikipedia.org/wiki/IEEE_802.11s).
-- [Yggdrasil](https://yggdrasil-network.github.io) runs directly on top of those 802.11s interfaces and provides end-to-end encrypted IPv6 mesh routing.
+- [Yggdrasil](https://yggdrasil-network.github.io) ([Yggdrasil-ng](https://github.com/Revertron/Yggdrasil-ng), its Rust implementation) runs directly on top of those 802.11s interfaces and provides end-to-end encrypted IPv6 mesh routing.
 - All WiFi clients can resolve and access [Alfis](https://alfis.name) domains (such as `.ygg` and other Yggdrasil services) out of the box, thanks to integrated Alfis DNS forwarding.
 - Every node runs a WiFi hotspot (open by default). Phones and laptops that connect to it get access to Yggdrasil IPv6.
 - Access to clearnet (the Internet) websites through the mesh, via [YggMesh exit nodes](https://github.com/ed-asriyan/YggMesh-exit-node).
@@ -59,7 +59,7 @@ The access point for phones and laptops, on every node.
 
 | Field | Meaning |
 |-------|---------|
-| Private key | Defines the node's Yggdrasil address. **Keep it secret: never share it with anyone**, whoever has it can act as your node. Never use the same key on two nodes. Changing the key changes the node address: exits that allow only some nodes know your node by its address, so send them the new **address** (shown below the key), never the key itself. Use "Generate a new key" to make one. |
+| Private key | Defines the node's Yggdrasil address. **Keep it secret: never share it with anyone**, whoever has it can act as your node. Never use the same key on two nodes. Exits know your node by its **public key** (shown below the private key): give that one to the owners of the exits you use, never the private key. Changing the private key changes the public key too. Use "Generate a new key" to make one. |
 | DNS resolvers | IPv6 addresses of DNS resolvers reachable over Yggdrasil. They resolve `.ygg` and the other Yggdrasil domains. |
 
 #### Public Yggdrasil peers
@@ -78,10 +78,12 @@ What the IPv4 traffic of the clients uses. Their IPv6 traffic reaches Yggdrasil 
 | Field | Meaning |
 |-------|---------|
 | Mode | `WAN`: directly through the WAN port of this node (nodes without WAN give no clearnet).<br>`Exits`: only through the exits, never through WAN, so your IP is never used; if no exit works, clients have no clearnet.<br>`WAN, then exits`: through WAN while it works, through the exits otherwise (sites see your IP while WAN works).<br>`Off`: no clearnet, Yggdrasil only. |
-| Exits | Yggdrasil addresses (`200::/8`) or domain names (e.g. an [Alfis](https://alfis.name) `.ygg` domain) of [YggMesh exit nodes](https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used. |
+| Exits | Public keys (64 hex digits) of [YggMesh exit nodes](https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used. Switching to another exit restarts Yggdrasil: the mesh links of the node drop for a few seconds, so the node switches only when the active exit stops working or another one is much faster. |
 
 #### **Exit nodes**
-An exit node is a server that is in Yggdrasil and on the Internet at the same time. Deploy [YggMesh-exit-node](https://github.com/ed-asriyan/YggMesh-exit-node) on a VPS, or even at home on your own laptop: that works too. Then put its address here. Wi-Fi clients (laptops and smartphones connected to the WiFi of your YggMesh node) need nothing: no apps and no settings, they just get the Internet over IPv4. If an exit allows only some nodes, give its owner the node address shown on the YggMesh page.
+An exit node is a server that is in Yggdrasil and on the Internet at the same time. Deploy [YggMesh-exit-node](https://github.com/ed-asriyan/YggMesh-exit-node) on a VPS, or even at home on your own laptop: that works too. Then put its public key here. Wi-Fi clients (laptops and smartphones connected to the WiFi of your YggMesh node) need nothing: no apps and no settings, they just get the Internet over IPv4. An exit serves only the nodes it knows: give its owner the public key of your node, shown on the YggMesh page.
+
+How it works: Yggdrasil-ng's [Crypto-Key Routing](https://github.com/Revertron/Yggdrasil-ng/blob/master/docs/CKR.md) carries the clients' IPv4 to the public key of the exit. The node masquerades it to its own address, `100.64.0.0/10` plus the last 22 bits of its public key; the exit derives the same address from the key and accepts the node's traffic from it only.
 
 ## Upgrading
 This project develops quickly and new releases come out often. There is no auto-update yet: when a new release is out, download the firmware for your device from the [Releases](https://github.com/ed-asriyan/YggMesh/releases) page and upgrade, keeping the settings. Your node then keeps its settings, including its Yggdrasil key, so its address stays the same. There are two ways:
@@ -108,10 +110,10 @@ Fork this repository, then go to **Actions → Build Firmware → Run workflow**
 | `private_ssid` | Client AP SSID shown to end-user devices. |
 | `yggdrasil_dns` | Space-separated DNS resolver IPv6 addresses reachable over Yggdrasil. Leave empty to skip overlay DNS. |
 | `yggpeers_instances` | Space-separated base URLs of [yggpeers instances](https://gitfield.org/fsky/yggpeers) used to auto-discover public Yggdrasil peers. A peer is used only if a majority of the reachable instances report it as up. Leave empty to disable public peers discovery and rely only on multicast discovery. |
-| `yggpeers_count` | Target number (1-10, default `3`) of global Yggdrasil peers per node with internet on WAN. Peers added by hand to the config count towards this number. |
+| `yggpeers_count` | Target number (1-10, default `3`) of global Yggdrasil peers per node with internet on WAN. |
 | `yggpeers_check_interval` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380, default `30`). Peers that are down are replaced at the next check. |
 | `yggpeers_rerank_interval` | Days between forced refreshes of the global peers list (1-90, default `7`), even if all current peers are alive. |
-| `clearnet_exits` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](https://github.com/ed-asriyan/YggMesh-exit-node); the fastest working one is used. |
+| `clearnet_exits` | Space-separated public keys of [clearnet exits](https://github.com/ed-asriyan/YggMesh-exit-node); the fastest working one is used. |
 | `clearnet_mode` | What clients' IPv4 traffic uses: `wan` (directly), `exit` (only the exits, **never** WAN), `wan_exit` (WAN while it works, the exits otherwise) or `off`. Default `wan_exit`. |
 
 The inputs are only the **default** [settings](#settings-reference) of a freshly installed node; every node can change them later on its YggMesh page in LuCI.
@@ -148,10 +150,10 @@ The script downloads the OpenWrt Image Builder on first run (~1.5 GB per target)
 | `DEFAULT_ROOT_PASSWORD` | Initial root password set on first boot. **Always change on first boot.** |
 | `YGGDRASIL_DNS` | Space-separated DNS resolver IPv6 addresses reachable over Yggdrasil. Can be empty to skip overlay DNS. |
 | `YGGPEERS_INSTANCES` | Space-separated base URLs of [yggpeers](https://gitfield.org/fsky/yggpeers) instances used to auto-discover public peers. Can be empty to disable auto-discovery. |
-| `YGGPEERS_COUNT` | Target number (1-10) of global Yggdrasil peers per node with internet on WAN. Peers added by hand to the config count towards this number. |
+| `YGGPEERS_COUNT` | Target number (1-10) of global Yggdrasil peers per node with internet on WAN. |
 | `YGGPEERS_CHECK_INTERVAL` | Minutes between checks of the global peers (1-59 or a multiple of 60 up to 1380). |
 | `YGGPEERS_RERANK_INTERVAL` | Days between forced refreshes of the global peers list (1-90), even if all current peers are alive. |
-| `CLEARNET_EXITS` | Space-separated Yggdrasil addresses (`200::/8`) or domain names (e.g. Alfis `.ygg`) of [clearnet exits](https://github.com/ed-asriyan/YggMesh-exit-node); the fastest working one is used. Can be empty. |
+| `CLEARNET_EXITS` | Space-separated public keys of [clearnet exits](https://github.com/ed-asriyan/YggMesh-exit-node); the fastest working one is used. Can be empty. |
 | `CLEARNET_MODE` | What clients' IPv4 traffic uses: `wan`, `exit`, `wan_exit` or `off`. |
 
 ## See it in action

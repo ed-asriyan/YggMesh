@@ -32,37 +32,10 @@ const callStatus = rpc.declare({
 // The node address of the key in the form, filled by updateKeyInfo()
 const keyInfoEl = E('span', {}, '…');
 
-const DOMAIN_RE = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/i;
-
-// Returns true if value is an IPv6 address written with hex groups only
-function isIPv6(value) {
-	if (!/^[0-9a-f:]+$/i.test(value))
-		return false;
-
-	const halves = value.split('::');
-	if (halves.length > 2)
-		return false;
-
-	const groups = halves.map(h => h == '' ? [] : h.split(':'));
-	const count = groups[0].length + (groups[1] ? groups[1].length : 0);
-	if (halves.length == 1 ? count != 8 : count > 7)
-		return false;
-
-	return groups.every(g => g.every(x => x.length >= 1 && x.length <= 4));
-}
-
 function validateExit(section_id, value) {
 	if (value == null || value == '')
 		return true;
-
-	if (value.indexOf(':') >= 0) {
-		const first = parseInt(value.split(':')[0], 16);
-		if (isIPv6(value) && first >= 0x200 && first <= 0x2ff)
-			return true;
-		return _('Expecting a Yggdrasil node address (200::/8), not a subnet (300::/8)');
-	}
-
-	return DOMAIN_RE.test(value) ? true : _('Expecting a Yggdrasil address or a domain name');
+	return /^[0-9a-f]{64}$/i.test(value) ? true : _('Expecting the public key of an exit: 64 hexadecimal digits');
 }
 
 function validatePrivateKey(section_id, value) {
@@ -86,7 +59,8 @@ function validateCheckInterval(section_id, value) {
 	return _('Expecting 1-59 minutes, or a multiple of 60 up to 1380');
 }
 
-// Shows the node address and the client subnet of the key in the form
+// Shows the public key, the node address and the client subnet of the key in
+// the form
 function updateKeyInfo(key) {
 	const el = keyInfoEl;
 
@@ -100,8 +74,10 @@ function updateKeyInfo(key) {
 			dom.content(el, E('em', _('Invalid private key')));
 		else
 			dom.content(el, [
-				_('Node address:'), ' ', E('strong', info.address), E('br'),
-				_('Clients get addresses in:'), ' ', info.subnet
+				_('Public key:'), ' ', E('strong', { 'style': 'word-break: break-all' }, info.public_key), E('br'),
+				_('Node address:'), ' ', info.address, E('br'),
+				_('Clients get addresses in:'), ' ', info.subnet, E('br'),
+				_('Clearnet address at the exits:'), ' ', info.ipv4
 			]);
 	});
 }
@@ -124,9 +100,8 @@ function renderStatus(st) {
 	else if (st.mode == 'wan_exit' && st.wan)
 		clearnet = _('%s; using WAN').format(modes[st.mode]);
 	else if (st.exit)
-		clearnet = _('%s; using exit %s (%s ms)').format(modes[st.mode],
-			st.exit == st.exit_address ? st.exit : '%s = %s'.format(st.exit, st.exit_address),
-			st.exit_rtt || '?');
+		clearnet = _('%s; using exit %s… (%s, %s ms)').format(modes[st.mode],
+			st.exit.substring(0, 16), st.exit_address, st.exit_rtt || '?');
 	else
 		clearnet = _('%s; no exit works, clients have no clearnet').format(modes[st.mode]);
 
@@ -188,7 +163,7 @@ return view.extend({
 		s = m.section(form.NamedSection, 'yggdrasil', 'yggdrasil', _('Yggdrasil'));
 
 		o = s.option(form.Value, 'private_key', _('Private key'),
-			_('Defines the node address. Keep it secret: never share it with anyone, whoever has it can act as this node. Never use the same key on two nodes. Changing the key changes the node address: exits that allow only some nodes know the node by its address, so send them the new address (shown below), never the key.'));
+			_('Defines the node address. Keep it secret: never share it with anyone, whoever has it can act as this node. Never use the same key on two nodes. Exits know the node by its <b>public</b> key (shown below): give that one to the owners of the exits you use, never the private key. Changing the private key changes the public key too.'));
 		o.password = true;
 		o.rmempty = false;
 		o.validate = validatePrivateKey;
@@ -262,7 +237,7 @@ return view.extend({
 		o.default = 'wan_exit';
 
 		o = s.option(form.DynamicList, 'exit', _('Exits'),
-			_('Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of <a href="%s" target="_blank" rel="noreferrer">clearnet exits</a>. The fastest working one is used.')
+			_('Public keys of <a href="%s" target="_blank" rel="noreferrer">clearnet exits</a>. The fastest working one is used. An exit serves only the nodes whose public keys its owner has added. Switching to another exit restarts Yggdrasil: the mesh links of this node drop for a few seconds.')
 				.format('https://github.com/ed-asriyan/YggMesh-exit-node'));
 		o.validate = validateExit;
 		o.optional = true;

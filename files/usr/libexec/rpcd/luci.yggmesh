@@ -2,12 +2,13 @@
 # shellcheck disable=SC3043
 # rpcd plugin of the YggMesh page in LuCI (view/yggmesh/settings.js)
 #   generateKey               a new Yggdrasil private key (not saved)
-#   keyInfo { private_key }   the node address and client subnet of a key
+#   keyInfo { private_key }   the public key, node address, client subnet and
+#                             clearnet IPv4 address of a key
 #   status                    the running node: address, peers, clearnet
 
 . /usr/share/libubox/jshn.sh
+. /usr/share/yggmesh/ygg.sh
 
-SOCK="unix:///tmp/yggdrasil/yggdrasil.sock"
 CLEARNET_STATUS="/var/run/yggmesh-clearnet.status"
 
 # Prints "address subnet" of private key $1 (128 hex digits), or nothing
@@ -18,9 +19,9 @@ key_info() {
 	esac
 	[ "${#1}" -eq 128 ] || return
 	tmp=$(mktemp)
-	echo "{ PrivateKey: \"$1\" }" > "$tmp"
-	address=$(yggdrasil -address -useconffile "$tmp" 2>/dev/null)
-	subnet=$(yggdrasil -subnet -useconffile "$tmp" 2>/dev/null)
+	echo "private_key = \"$1\"" > "$tmp"
+	address=$(yggdrasil -c "$tmp" -a 2>/dev/null)
+	subnet=$(yggdrasil -c "$tmp" -s 2>/dev/null)
 	rm -f "$tmp"
 	[ -n "$address" ] && [ -n "$subnet" ] && echo "$address $subnet"
 }
@@ -46,7 +47,7 @@ case "$1" in
 		case "$2" in
 			generateKey)
 				json_init
-				json_add_string private_key "$(yggdrasil -genconf -json 2>/dev/null | jsonfilter -e '@.PrivateKey')"
+				json_add_string private_key "$(new_private_key)"
 				json_dump
 				;;
 			keyInfo)
@@ -57,19 +58,24 @@ case "$1" in
 				info=$(key_info "$key")
 				json_init
 				if [ -n "$info" ]; then
+					pub=$(pubkey_of "$key")
+					json_add_string public_key "$pub"
 					json_add_string address "${info% *}"
 					json_add_string subnet "${info#* }"
+					json_add_string ipv4 "$(key_ipv4 "$pub")"
 				else
 					json_add_string error "invalid private key"
 				fi
 				json_dump
 				;;
 			status)
-				peers=$(yggdrasilctl -json -endpoint="$SOCK" getPeers 2>/dev/null)
+				self=$(ygg_ctl getSelf 2>/dev/null)
+				peers=$(ygg_ctl getPeers 2>/dev/null)
 				json_init
-				json_add_string address "$(ip -6 -o addr show dev yggdrasil scope global 2>/dev/null | awk '{ sub(/\/.*/, "", $4); print $4 }' | grep -m1 '^2')"
-				json_add_int peers_up "$(echo "$peers" | jsonfilter -e '@.peers[@.up=true].remote' 2>/dev/null | wc -l)"
-				json_add_int peers "$(echo "$peers" | jsonfilter -e '@.peers[*].remote' 2>/dev/null | wc -l)"
+				json_add_string address "$(echo "$self" | jsonfilter -e '@.response.address' 2>/dev/null)"
+				json_add_string public_key "$(echo "$self" | jsonfilter -e '@.response.key' 2>/dev/null)"
+				json_add_int peers_up "$(echo "$peers" | jsonfilter -e '@.response.peers[@.up=true].uri' 2>/dev/null | wc -l)"
+				json_add_int peers "$(echo "$peers" | jsonfilter -e '@.response.peers[*].uri' 2>/dev/null | wc -l)"
 				json_add_string mode "$(uci -q get yggmesh.clearnet.mode)"
 				json_add_boolean clearnet_running "$([ -s "$CLEARNET_STATUS" ] && echo 1 || echo 0)"
 				json_add_string exit "$(clearnet_status exit)"

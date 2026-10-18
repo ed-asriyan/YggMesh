@@ -5,9 +5,10 @@
 # Any node with internet on WAN picks public global peers by itself. Candidates
 # come from yggpeers instances (yggmesh.discovery.instance), are filtered by
 # majority vote, ranked by ping, and the best N are applied at runtime through
-# the Yggdrasil admin socket. The yggdrasil interface is NEVER restarted or
-# reloaded: that would drop every 802.11s mesh link. Peers are changed through
-# the socket and persisted with `uci commit network` only.
+# the Yggdrasil admin socket. Yggdrasil is NEVER restarted: that would drop
+# every 802.11s mesh link. Peers are changed through the socket and saved to
+# AUTO_PEERS, which /etc/init.d/yggdrasil puts into the configuration of the
+# next start.
 #
 # Takes no arguments. Started by cron (check_interval), on WAN ifup and on NTP
 # stratum events (see files/etc/hotplug.d). Logs: logread -e yggmesh-fetch-peers
@@ -26,10 +27,8 @@
 #   4. Preconditions: WAN must be up and the clock must be at least the build
 #      time baked into /etc/yggmesh/build_epoch (otherwise HTTPS fails; the NTP
 #      hotplug runs the script again). If not met: exit.
-#   5. static = peers configured by hand (no `interface`, not ygg_auto_peer_*).
-#      target = max(0, count - static).
-#   6. target == 0: remove all auto peers and exit.
-#   7. Decide whether to reselect:
+#   5. target = count.
+#   6. Decide whether to reselect:
 #        - last selection older than rerank_interval days: reselect, after a
 #          random 0-600 s pause so that deployments do not hit the API together;
 #        - number of auto peers differs from target: reselect;
@@ -47,16 +46,16 @@
 #  11. Ping every candidate (3 probes, 16 in parallel), sort by average rtt
 #      (silent hosts are ranked last), take the top target.
 #  12. Apply: removePeer for peers that left and addPeer for new ones through
-#      the socket, then rewrite the ygg_auto_peer_* sections and commit.
+#      the socket, then rewrite AUTO_PEERS.
 #  13. Log the chosen URIs with their rtt and store the time of this selection.
 #
 # State: /tmp/yggmesh-fetch-peers.bad (blacklist) and .stamp (last selection)
 # are cleared on reboot, which is intended.
 
-SOCK="unix:///tmp/yggdrasil/yggdrasil.sock"
-SOCK_FILE="/tmp/yggdrasil/yggdrasil.sock"
+. /usr/share/yggmesh/ygg.sh
+
 PROTOS="tls quic tcp"
-AUTO_PREFIX="ygg_auto_peer_"
+AUTO_PEERS="/etc/yggmesh/auto_peers"
 BLACKLIST="/tmp/yggmesh-fetch-peers.bad"
 LOCK="/var/lock/yggmesh-fetch-peers.lock"
 STAMP="/tmp/yggmesh-fetch-peers.stamp"
@@ -95,7 +94,7 @@ uri_host() {
 }
 
 # Prints host:port of a peer URI with IPv6 brackets kept. Used to compare a
-# URI with the 'remote' strings reported by the admin socket.
+# URI with the 'uri' strings reported by the admin socket.
 uri_hostport() {
     local rest="${1#*://}"
     rest="${rest%%\?*}"
@@ -121,46 +120,30 @@ uri_proto_rank() {
 }
 
 # ----------------------------------------------------------------------------
-# UCI / admin socket
+# Peers / admin socket
 # ----------------------------------------------------------------------------
 
-# Prints the number of manually configured peers: network sections of type
-# yggdrasil_yggdrasil_peer that have no `interface` option (those are tied to a
-# multicast interface) and are not ours (name does not start with ygg_auto_peer_).
-# awk collects peer sections and sections having `interface`, then counts the difference.
-count_static_peers() {
-    uci -q show network | awk -F'[.=]' -v pfx="$AUTO_PREFIX" '
-        $3 == "yggdrasil_yggdrasil_peer" && index($2, pfx) != 1 { t[$2] = 1 }
-        $3 == "interface" { i[$2] = 1 }
-        END { n = 0; for (s in t) if (!(s in i)) n++; print n }'
-}
-
-# Prints the addresses of the ygg_auto_peer_* sections, one per line
+# Prints the auto peers, one per line
 current_auto_peers() {
-    uci -q show network | sed -n "s/^network\.${AUTO_PREFIX}[0-9]*\.address='\(.*\)'$/\1/p"
+    cat "$AUTO_PEERS" 2>/dev/null
 }
 
-# Deletes every ygg_auto_peer_* section from the uncommitted UCI network config
-delete_auto_sections() {
-    local sec
-    for sec in $(uci -q show network | sed -n "s/^network\.\(${AUTO_PREFIX}[0-9]*\)=.*/\1/p"); do
-        uci -q delete "network.$sec"
-    done
+# Replaces the auto peers with the URIs read from stdin. The file is written
+# only when it changes, to spare the flash; nothing restarts Yggdrasil.
+write_auto_peers() {
+    local tmp="${AUTO_PEERS}.new"
+    mkdir -p "${AUTO_PEERS%/*}"
+    grep -v '^$' > "$tmp"
+    if [ "$(cat "$tmp")" = "$(cat "$AUTO_PEERS" 2>/dev/null)" ]; then
+        rm -f "$tmp"
+    else
+        mv "$tmp" "$AUTO_PEERS"
+    fi
 }
 
-# Replaces the auto peers with the URIs read from stdin: deletes the old
-# ygg_auto_peer_* sections, creates ygg_auto_peer_1..N and commits. `uci commit`
-# only writes the file; nothing reloads the network.
-write_auto_sections() {
-    local uri k=1
-    delete_auto_sections
-    while read -r uri; do
-        [ -n "$uri" ] || continue
-        uci set "network.${AUTO_PREFIX}${k}=yggdrasil_yggdrasil_peer"
-        uci set "network.${AUTO_PREFIX}${k}.address=${uri}"
-        k=$((k + 1))
-    done
-    uci commit network
+# Returns 0 if Yggdrasil answers on its admin socket
+ygg_alive() {
+    ygg_ctl getSelf >/dev/null 2>&1
 }
 
 # Runs addPeer or removePeer ($1) for the URI ($2) through the admin socket.
@@ -168,25 +151,25 @@ write_auto_sections() {
 # logged and is not fatal.
 ygg_peer_op() {
     local op="$1" uri="$2"
-    [ -S "$SOCK_FILE" ] || return 0
-    yggdrasilctl -endpoint="$SOCK" "$op" uri="$uri" >/dev/null 2>&1 \
+    ygg_alive || return 0
+    ygg_ctl "$op" uri="$uri" >/dev/null 2>&1 \
         || logger -t "$TAG" "Warning: $op $uri failed"
 }
 
-# Prints the 'remote' value of every connected peer that is up, one per line.
+# Prints the 'uri' value of every connected peer that is up, one per line.
 # This is the only place that knows the layout of the getPeers JSON.
 ygg_up_peers() {
-    yggdrasilctl -json -endpoint="$SOCK" getPeers 2>/dev/null | jsonfilter -e '@.peers[@.up=true].remote'
+    ygg_ctl getPeers 2>/dev/null | jsonfilter -e '@.response.peers[@.up=true].uri'
 }
 
 # Returns 0 if peer URI $1 is among the up peers listed in file $2. Tries an
-# exact match first, then host:port, because the socket may report the remote
+# exact match first, then host:port, because the socket may report the URI
 # without the ?query or with a different spelling.
 peer_is_up() {
     local uri="$1" upfile="$2" hp
     grep -qxF "$uri" "$upfile" && return 0
     hp=$(uri_hostport "$uri")
-    # remote strings may be rewritten (query dropped, scheme case), match host:port
+    # URIs may be rewritten (query dropped, scheme case), match host:port
     while read -r remote; do
         [ "$(uri_hostport "$remote")" = "$hp" ] && return 0
     done < "$upfile"
@@ -408,8 +391,8 @@ rank_by_ping() {
 # Switches the running node and the saved config to the URIs in file $1.
 # Diffs the old auto peers against the new ones, calls removePeer for those
 # that left and addPeer for the new ones (existing connections are untouched,
-# the mesh stays up), then persists the set in UCI. The runtime part comes
-# first, so a failed commit cannot leave the node without new peers.
+# the mesh stays up), then saves the set. The runtime part comes first, so a
+# failed write cannot leave the node without new peers.
 apply_peers() {
     local new="$1" old="$WORK/old" uri
     current_auto_peers | sort -u > "$old"
@@ -420,7 +403,7 @@ apply_peers() {
     for uri in $(lines_not_in "$old" "$new.sorted"); do
         ygg_peer_op addPeer "$uri"
     done
-    write_auto_sections < "$new"
+    write_auto_peers < "$new"
 }
 
 # ----------------------------------------------------------------------------
@@ -430,7 +413,7 @@ apply_peers() {
 # One full run, see the algorithm in the header. Every `exit 0` below is a
 # normal "nothing to do" outcome; exit 1 means that discovery failed.
 main() {
-    local count target static r ranked
+    local count target r ranked
 
     sync_cron
 
@@ -446,24 +429,13 @@ main() {
     fi
 
     WORK=$(mktemp -d)
-    static=$(count_static_peers)
-    target=$((count - static))
-    [ "$target" -lt 0 ] && target=0
-
-    if [ "$target" -eq 0 ]; then
-        if [ -n "$(current_auto_peers)" ]; then
-            log "Enough manual peers ($static), removing auto peers"
-            : > "$WORK/none"
-            apply_peers "$WORK/none"
-        fi
-        exit 0
-    fi
+    target=$count
 
     if rerank_due; then
         # Spread the weekly re-rank so that deployments do not hit the API together
         sleep $(( $(hexdump -n 2 -e '/2 "%u"' /dev/urandom) % 601 ))
     elif [ "$(current_auto_peers | wc -l)" -eq "$target" ]; then
-        [ -S "$SOCK_FILE" ] || exit 0
+        ygg_alive || exit 0
         down_peers_to_blacklist || exit 0
     fi
 
@@ -481,7 +453,7 @@ main() {
     fi
 
     echo "$ranked" | cut -d' ' -f2- > "$WORK/chosen"
-    log "Selected $(echo "$ranked" | wc -l) of $target peers ($static manual), $r instance(s) reachable:"
+    log "Selected $(echo "$ranked" | wc -l) of $target peers, $r instance(s) reachable:"
     echo "$ranked" | while read -r rtt uri; do
         log "  $uri rtt=${rtt}ms"
     done

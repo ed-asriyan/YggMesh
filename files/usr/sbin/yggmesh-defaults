@@ -19,9 +19,9 @@
 #     (schema 0): the settings are imported from the configs that firmware
 #     generated, so the Yggdrasil key (the node address) and the SSID survive.
 #
-# Schema 2:
+# Schema 3:
 #   config meta 'meta'
-#       option schema           2
+#       option schema           3
 #   config wifi 'wifi'              client access point
 #       option ssid             1-32 bytes
 #       option encryption       none | psk2 (WPA2) | sae (WPA3) | sae-mixed (WPA2/WPA3)
@@ -36,9 +36,11 @@
 #       option rerank_interval  days, 1-90
 #   config clearnet 'clearnet'      clients' IPv4, see yggmesh-clearnet
 #       option mode             off | wan | wan_exit | exit
-#       list exit               Yggdrasil addresses (200::/8) or domain names
+#       list exit               public keys of the exits (64 hex digits)
 
-SCHEMA=2
+. /usr/share/yggmesh/ygg.sh
+
+SCHEMA=3
 INPUTS=/etc/yggmesh/inputs
 CONFIG=/etc/config/yggmesh
 
@@ -60,11 +62,6 @@ set_list() {
     done
 }
 
-# Prints a new Yggdrasil private key
-new_key() {
-    yggdrasil -genconf -json 2>/dev/null | jsonfilter -e '@.PrivateKey'
-}
-
 # Fresh install: settings from the build inputs, plus the system settings
 # that are set once and are the user's afterwards (hostname, root password)
 init_fresh() {
@@ -75,7 +72,7 @@ init_fresh() {
     uci set yggmesh.wifi.encryption='none'
 
     uci set yggmesh.yggdrasil=yggdrasil
-    uci set yggmesh.yggdrasil.private_key="$(new_key)"
+    uci set yggmesh.yggdrasil.private_key="$(new_private_key)"
     set_list yggmesh.yggdrasil.dns "$(input yggdrasil_dns)"
 
     uci set yggmesh.discovery=discovery
@@ -140,7 +137,7 @@ migrate_0() {
 
     key=$(uci -q get network.yggdrasil.private_key)
     uci set yggmesh.yggdrasil=yggdrasil
-    uci set yggmesh.yggdrasil.private_key="${key:-$(new_key)}"
+    uci set yggmesh.yggdrasil.private_key="${key:-$(new_private_key)}"
     # The firmware advertised exactly the Yggdrasil DNS resolvers over RA
     set_list yggmesh.yggdrasil.dns "$(uci -q get dhcp.private.dns)"
 
@@ -164,6 +161,24 @@ migrate_1() {
     uci -q delete yggmesh.yggdrasil.port
 }
 
+# Schema 2 -> 3: Yggdrasil-ng instead of yggdrasil-go and luci-proto-yggdrasil.
+# Exits are public keys now (Crypto-Key Routing, not NAT64): an address or a
+# domain name cannot be turned into a key, those exits are dropped.
+migrate_2() {
+    local e kept="" dropped=""
+    for e in $(uci -q get yggmesh.clearnet.exit); do
+        if is_pubkey "$e"; then
+            kept="$kept $e"
+        else
+            dropped="$dropped $e"
+        fi
+    done
+    if [ -n "$dropped" ]; then
+        set_list yggmesh.clearnet.exit "$kept"
+        log "Warning: exits are public keys now, ask their owners for them. Dropped:$dropped"
+    fi
+}
+
 touch "$CONFIG"
 schema=$(uci -q get yggmesh.meta.schema)
 case "$schema" in
@@ -183,7 +198,8 @@ elif [ "$schema" -gt "$SCHEMA" ]; then
     log "Warning: settings schema $schema is newer than this firmware ($SCHEMA)"
 fi
 [ "$schema" -lt 2 ] && migrate_1
-# Future migrations: [ "$schema" -lt 3 ] && migrate_2, and so on
+[ "$schema" -lt 3 ] && migrate_2
+# Future migrations: [ "$schema" -lt 4 ] && migrate_3, and so on
 
 [ "$schema" -lt "$SCHEMA" ] && {
     uci set yggmesh.meta=meta

@@ -1,54 +1,47 @@
 #!/bin/sh
 # shellcheck disable=SC3043
-# YggMesh — clearnet access through Yggdrasil exit nodes (464XLAT).
+# YggMesh — clearnet access through Yggdrasil exit nodes (Crypto-Key Routing).
 #
 # In the exit clearnet mode (yggmesh.clearnet.mode, exits in
 # yggmesh.clearnet.exit) every IPv4 packet from the Wi-Fi clients goes to one
 # of the exits, never to WAN. In the wan_exit mode the clients use WAN while
-# it works and the exits otherwise. The node is the CLAT, the exit is the
-# NAT64 (see YggMesh-exit-node):
+# it works and the exits otherwise. Exits are known by their public keys.
 #
-#   client 10.0.0.x --NAT44--> 192.0.0.1 --CLAT--> fd64::2 --NAT66--> 200:<node>
-#     --Yggdrasil--> <exit /64>::a.b.c.d --exit NAT64--> a.b.c.d
+#   client 10.0.0.x --NAT44--> 100.x.y.z (the node) --Yggdrasil CKR--> exit
+#     --exit NAT44--> the Internet
 #
-# The CLAT (the 4 <-> 6 translator) is Jool SIIT, in the kernel, so translated
-# packets never visit userspace. It lives in its own network namespace NS
-# behind the veth pair clat <-> clat0: Jool hooks PREROUTING and its translated
-# packets skip FORWARD and conntrack, so in its own namespace the main one
-# still sees every packet the usual way (fw4 zones, NAT44, NAT66).
-#
-# The NAT64 prefix of an exit is derived from its Yggdrasil address: the
-# exit's routed /64 (first byte 0x02 -> 0x03) followed by 32 zero bits, so the
-# IPv4 address is in the last 32 bits (RFC 6052 /96). Yggdrasil routes the
-# exit's /64 to the exit, no other configuration is needed. The exit allows
-# nodes by their 200::/8 address: translated traffic is masqueraded to it.
-#
-# An exit is a Yggdrasil address (200::/8) or a domain name (e.g. an Alfis
-# .ygg domain) with an AAAA record in 200::/8. Names are resolved through the
-# local dnsmasq, which sends .ygg to the Yggdrasil DNS resolvers: every
-# RESOLVE_INTERVAL seconds, and on every check while no exit works or a name is
-# unresolved. When the address of the active exit changes, the CLAT follows it.
+# Yggdrasil-ng carries IPv4 itself: its Crypto-Key Routing sends 0.0.0.0/0 to
+# the public key of the active exit (see /etc/init.d/yggdrasil), no
+# translation is involved. The node's IPv4 address on the TUN device is
+# derived from its key (key_ipv4): the exit derives the same one from the key
+# and accepts the node's packets from that address only (YggMesh-exit-node).
+# The CKR table is fixed while Yggdrasil runs: switching to another exit
+# restarts Yggdrasil, which drops the mesh links of the node for a few
+# seconds. Exits are switched as rarely as possible.
 #
 # Usage:
-#   yggmesh-clearnet run          monitor loop, started by /etc/init.d/yggmesh-clearnet
-#   yggmesh-clearnet cleanup      remove the CLAT and its routing, after the service stops
-#   yggmesh-clearnet prefix ADDR  print the NAT64 prefix of exit ADDR, e.g. 300:1:2:3::
+#   yggmesh-clearnet run      monitor loop, started by /etc/init.d/yggmesh-clearnet
+#   yggmesh-clearnet cleanup  remove the routing, after the service stops
+#   yggmesh-clearnet current  print the exit Yggdrasil is (to be) configured
+#                             with: the active one, or the first configured
 #
-# Exit selection. Every CHECK_INTERVAL seconds every exit is checked: a ping
-# request to 1.1.1.1 or 8.8.8.8 through the exit's NAT64 prefix, sent natively
-# over Yggdrasil from the node address. It covers the Yggdrasil path, the
-# exit's allow list, its NAT64 and its internet access, and its round trip
-# time is the exit's latency (smoothed: rtt = (3 * rtt + sample) / 4).
-#   - without an active exit the fastest healthy one is used (the configured
-#     order only breaks ties);
-#   - the active exit is kept while it works: switching changes the public IP
-#     and breaks running connections. It is dropped after FAIL_LIMIT failed
-#     checks in a row;
-#   - another exit takes over only when it has been healthy for RETURN_LIMIT
-#     checks in a row and is clearly faster: below SWITCH_PCT % of the active
-#     exit's latency and at least SWITCH_MS ms faster. Noise does not bounce
-#     clients between exits;
-#   - without a healthy exit clients have no clearnet at all: the client
+# Exit selection. Every CHECK_INTERVAL seconds every exit is pinged over
+# Yggdrasil (its 200::/8 address, derived from its key): its round trip time
+# is the exit's latency (smoothed: rtt = (3 * rtt + sample) / 4). The active
+# exit is also checked end to end: a ping request to 1.1.1.1 or 8.8.8.8 from
+# the node's IPv4 address, through the exit. It covers the exit's allow list,
+# its NAT and its internet access.
+#   - the active exit is kept while it works: switching changes the public IP,
+#     breaks running connections and restarts Yggdrasil. It is dropped after
+#     FAIL_LIMIT failed checks in a row, and is not switched to again for
+#     COOLDOWN seconds;
+#   - without an active exit the fastest reachable one is used. The exit
+#     Yggdrasil already runs with comes last: using it needs no restart, so it
+#     is tried again even within its COOLDOWN when nothing else is reachable;
+#   - another exit takes over only when it has been reachable for
+#     RETURN_LIMIT checks in a row and is clearly faster: below SWITCH_PCT %
+#     of the active exit's latency and at least SWITCH_MS ms faster;
+#   - without a working exit clients have no clearnet at all: the client
 #     routing table holds an unreachable route and the firewall has no
 #     LAN -> WAN forwarding in this mode.
 #
@@ -60,222 +53,156 @@
 # once when it has no default route; it is used again after WAN_UP_LIMIT good
 # checks. The exits are checked all the time, so the failover is immediate.
 #
-# DNS: dnsmasq also queries 1.1.1.1 and 8.8.8.8 through the active exit, so
-# nodes without WAN resolve clearnet names. Those servers are written to
-# DNS_FILE (dnsmasq --servers-file, re-read on SIGHUP) when the active exit
-# changes. The file is persistent, so it is ready before dnsmasq starts.
+# DNS: dnsmasq also queries 1.0.0.1 and 8.8.4.4 from the node's IPv4 address,
+# i.e. through the active exit, so nodes without WAN resolve clearnet names.
+# Those servers are written to DNS_FILE (dnsmasq --servers-file, re-read on
+# SIGHUP). The file is persistent, so it is ready before dnsmasq starts.
 #
 # State: STATUS_FILE (exit, address, rtt of the active exit; wan: 1 while
-# clients use WAN), rewritten after every check.
+# clients use WAN), rewritten after every check. ACTIVE_FILE: the exit
+# Yggdrasil is configured with, read by /etc/init.d/yggdrasil.
 #
 # Logs: logread -e yggmesh-clearnet
 
+. /usr/share/yggmesh/ygg.sh
+
 TAG="yggmesh-clearnet"
-CLAT_DEV="clat"          # the main side of the veth pair into NS
-CLAT_MTU=1520            # IPv4 1500 + 20 bytes of IPv6 header growth
-CLAT_HOST4="192.0.0.1"   # NAT44 target of the clients (RFC 7335 range)
-CLAT_NET6="fd64::/64"    # translated traffic, masqueraded to the node address by fw4
-CLAT_USER6="fd64::2"     # the clients, translated (Jool EAMT)
-# The namespace of Jool, its side of the veth pair and the link addresses
-NS="yggclat"
-NS_DEV="clat0"
-NS_HOST4="192.0.0.2"     # next hop of the client IPv4, in NS
-LINK6_MAIN="fe80::1"
-LINK6_NS="fe80::2"       # next hop of fd64::/64, in NS
-JOOL_INSTANCE="yggmesh"
 TABLE=64                 # routing table of the client IPv4 traffic
-RULE_PRIO=6400
+RULE_PRIO=6400           # the clients
+SELF_PRIO=6401           # the node itself, from its IPv4 address: checks and DNS
 WAN_PRIO=6399            # wan_exit: the client IPv4 uses the main table first
 CLIENT_DEV="br-private"
 DNS_FILE="/etc/yggmesh/clearnet-dns.conf"
 STATUS_FILE="/var/run/yggmesh-clearnet.status"   # for the LuCI page
+ACTIVE_FILE="/var/run/yggmesh-clearnet.exit"
 CHECK_INTERVAL=30
 FAIL_LIMIT=3
 RETURN_LIMIT=10
 SWITCH_PCT=70
 SWITCH_MS=30
-RESOLVE_INTERVAL=600
+COOLDOWN=600
 WAN_UP_LIMIT=2
 
 log() {
     logger -t "$TAG" "$*"
 }
 
-# Prints the NAT64 /96 prefix (without the length, ending in "::") of the exit
-# with Yggdrasil address $1, or nothing if $1 is not an address in 200::/8.
-# The address is expanded to 8 groups first (busybox awk has no IPv6 helpers).
-exit_prefix() {
-    echo "$1" | awk '
-        function hex(s,    i, n, c) {
-            n = 0
-            s = tolower(s)
-            for (i = 1; i <= length(s); i++) {
-                c = index("0123456789abcdef", substr(s, i, 1))
-                if (c == 0) return -1
-                n = n * 16 + c - 1
-            }
-            return n
-        }
-        {
-            a = $0
-            if (a !~ /^[0-9a-fA-F:]+$/) exit
-            n = split(a, halves, "::")
-            if (n > 2) exit
-            nh = (halves[1] == "") ? 0 : split(halves[1], h, ":")
-            nt = (n == 2 && halves[2] != "") ? split(halves[2], t, ":") : 0
-            if (n == 1 && nh != 8) exit
-            if (n == 2 && nh + nt > 7) exit
-            for (i = 1; i <= 8; i++) g[i] = 0
-            for (i = 1; i <= nh; i++) g[i] = hex(h[i])
-            for (i = 1; i <= nt; i++) g[8 - nt + i] = hex(t[i])
-            for (i = 1; i <= 8; i++) if (g[i] < 0 || g[i] > 65535) exit
-            if (g[1] < 512 || g[1] > 767) exit
-            printf "%x:%x:%x:%x::\n", g[1] + 256, g[2], g[3], g[4]
-        }'
-}
-
-# Prints the first Yggdrasil address (200::/8) of domain name $1, resolved
-# through the local dnsmasq, or nothing.
-resolve_name() {
-    local a
-    for a in $(nslookup "$1" 127.0.0.1 2>/dev/null | sed -n 's/^Address[ 0-9]*:[[:space:]]*//p'); do
-        if [ -n "$(exit_prefix "$a")" ]; then
-            echo "$a"
-            return
-        fi
+# Prints the exit Yggdrasil is (to be) configured with: the one in ACTIVE_FILE
+# while it is configured, the first configured exit otherwise. Nothing outside
+# the exit clearnet modes.
+current() {
+    local exits e saved
+    case "$(uci -q get yggmesh.clearnet.mode)" in
+        exit|wan_exit) ;;
+        *) return 0 ;;
+    esac
+    exits=$(uci -q get yggmesh.clearnet.exit | tr 'A-F' 'a-f')
+    saved=$(cat "$ACTIVE_FILE" 2>/dev/null)
+    for e in $exits; do
+        [ "$e" = "$saved" ] && { echo "$e"; return 0; }
+    done
+    for e in $exits; do
+        is_pubkey "$e" && { echo "$e"; return 0; }
     done
 }
 
-# Points the extra dnsmasq servers at exit prefix $1. The file is rewritten in
-# place (dnsmasq runs in a jail with this very file bind-mounted) and only when
-# its content changes, to spare the flash.
+# Prints the exit the running Yggdrasil was started with, from its configuration
+running_exit() {
+    sed -n 's/^"\([0-9a-f]\{64\}\)" = .*/\1/p' "$YGG_CONF" 2>/dev/null
+}
+
+# Points the extra dnsmasq servers through the exits, from the node's IPv4
+# address $1, or nowhere without $1. The file is rewritten in place (dnsmasq
+# runs in a jail with this very file bind-mounted) and only when its content
+# changes, to spare the flash.
 write_dns() {
-    local want
-    want=$(printf 'server=%s101:101\nserver=%s808:808' "$1" "$1")
+    local want=""
+    [ -n "$1" ] && want=$(printf 'server=1.0.0.1@%s\nserver=8.8.4.4@%s' "$1" "$1")
     [ "$(cat "$DNS_FILE" 2>/dev/null)" = "$want" ] && return 0
-    echo "$want" > "$DNS_FILE"
+    if [ -n "$want" ]; then
+        echo "$want" > "$DNS_FILE"
+    else
+        : > "$DNS_FILE"
+    fi
     killall -HUP dnsmasq 2>/dev/null
 }
 
-# Runs jool_siit with arguments $@ on the instance in NS
-jool_ns() {
-    ip netns exec "$NS" jool_siit -i "$JOOL_INSTANCE" "$@"
-}
-
-clat_running() {
-    jool_ns global display >/dev/null 2>&1
-}
-
-# Creates the Jool instance in NS, pointed at prefix $1 (optional)
-clat_instance() {
-    ip netns exec "$NS" jool_siit instance add "$JOOL_INSTANCE" --netfilter ${1:+--pool6 "${1}/96"} >/dev/null \
-        || return 1
-    # As on any 1520 link: IPv4 without DF is not fragmented below that
-    jool_ns global update lowest-ipv6-mtu "$CLAT_MTU" >/dev/null
-    jool_ns eamt add "$CLAT_HOST4" "$CLAT_USER6" >/dev/null
-}
-
-# Removes the CLAT: the Jool instance, the veth pair and NS
-clat_remove() {
-    jool_ns instance remove >/dev/null 2>&1
-    ip link del "$CLAT_DEV" 2>/dev/null
-    ip netns del "$NS" 2>/dev/null
-    return 0
-}
-
-# Creates NS with the Jool SIIT instance and the veth pair into it. Kept as is
-# when it is already there, so a restart does not cut the clients off.
-#   main: clat 192.0.0.1/29 fe80::1, fd64::/64 via fe80::2
-#   NS:   clat0 192.0.0.2/29 fe80::2, default via fe80::1;
-#         Jool: 192.0.0.1 <-> fd64::2 (EAMT), the rest <-> exit prefix (pool6)
-clat_setup() {
-    local mac_main mac_ns
-    [ -d /sys/module/jool_siit ] || modprobe jool_siit >/dev/null 2>&1 \
-        || { log "The jool_siit kernel module is missing"; return 1; }
-    ip netns list >/dev/null 2>&1 \
-        || { log "ip has no netns support (busybox ip?), the CLAT needs ip-tiny or ip-full"; return 1; }
-    if ! ip netns exec "$NS" ip link show "$NS_DEV" >/dev/null 2>&1 \
-        || ! ip -d link show "$CLAT_DEV" 2>/dev/null | grep -q veth; then
-        clat_remove
-        ip netns add "$NS" || return 1
-        ip link add "$CLAT_DEV" type veth peer name "$NS_DEV" netns "$NS" || return 1
-    fi
-    ip link set "$CLAT_DEV" mtu "$CLAT_MTU" up
-    ip -4 addr replace "${CLAT_HOST4}/29" dev "$CLAT_DEV"
-    ip -6 addr replace "${LINK6_MAIN}/64" dev "$CLAT_DEV" nodad
-    ip netns exec "$NS" sh -c "
-        echo 1 > /proc/sys/net/ipv4/ip_forward
-        echo 1 > /proc/sys/net/ipv6/conf/all/forwarding
-        ip link set lo up
-        ip link set $NS_DEV mtu $CLAT_MTU up
-        ip -4 addr replace ${NS_HOST4}/29 dev $NS_DEV
-        ip -6 addr replace ${LINK6_NS}/64 dev $NS_DEV nodad
-        ip -6 route replace default via $LINK6_MAIN dev $NS_DEV
-    " || return 1
-    # Static neighbours: the clearnet zone rejects input, NDP from NS included
-    mac_main=$(cat "/sys/class/net/$CLAT_DEV/address")
-    mac_ns=$(ip netns exec "$NS" cat "/sys/class/net/$NS_DEV/address")
-    [ -n "$mac_main" ] && [ -n "$mac_ns" ] || return 1
-    ip -6 neigh replace "$LINK6_NS" lladdr "$mac_ns" dev "$CLAT_DEV" nud permanent
-    ip netns exec "$NS" ip -6 neigh replace "$LINK6_MAIN" lladdr "$mac_main" dev "$NS_DEV" nud permanent
-    ip -6 route replace "$CLAT_NET6" via "$LINK6_NS" dev "$CLAT_DEV"
-    clat_running || clat_instance
-}
-
 # Client IPv4 goes nowhere: the kill switch. Used at start and whenever no
-# exit is healthy, so clients fail fast instead of waiting for timeouts.
+# exit works, so clients fail fast instead of waiting for timeouts.
 route_block() {
     ip -4 route replace unreachable default table "$TABLE"
 }
 
-# Creates the CLAT and the policy routing. Everything is idempotent: the
-# service may be restarted at any time.
+# Client IPv4 goes to Yggdrasil, CKR sends it to the active exit. The route
+# goes with the TUN device when Yggdrasil restarts, so it is renewed on every
+# check. Returns 1 while the device is missing.
+route_exit() {
+    ip link show "$YGG_DEV" >/dev/null 2>&1 || return 1
+    ip -4 route replace default dev "$YGG_DEV" table "$TABLE"
+}
+
+# Creates the policy routing. Everything is idempotent: the service may be
+# restarted at any time.
 setup() {
-    clat_setup || log "Cannot set up the CLAT, clients have no clearnet through the exits"
     ip -4 rule del priority "$RULE_PRIO" 2>/dev/null
+    ip -4 rule del priority "$SELF_PRIO" 2>/dev/null
     ip -4 rule del priority "$WAN_PRIO" 2>/dev/null
     ip -4 rule add iif "$CLIENT_DEV" lookup "$TABLE" priority "$RULE_PRIO"
+    ip -4 rule add from "$my_ip" lookup "$TABLE" priority "$SELF_PRIO"
     route_block
+    write_dns "$my_ip"
 }
 
-# Points the CLAT at exit number $1, routes the client IPv4 into it and moves
-# the DNS servers there. The prefix is changed in place (if this Jool cannot,
-# the instance is recreated with it). Running connections break, as the
-# public IPv4 address changes anyway.
+# Waits up to 30 s for the TUN device of a restarted Yggdrasil
+wait_dev() {
+    local i=0
+    while [ "$i" -lt 30 ]; do
+        ip link show "$YGG_DEV" >/dev/null 2>&1 && return 0
+        sleep 1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# Makes exit number $1 the active one: restarts Yggdrasil with it unless it
+# runs with it already, then routes the client IPv4 into it
 activate() {
-    local e a p r
-    eval "e=\$exit_$1 a=\$addr_$1 p=\$prefix_$1 r=\$rtt_$1"
-    clat_running || clat_setup || log "Cannot set up the CLAT"
-    if ! jool_ns global update pool6 "${p}/96" >/dev/null 2>&1; then
-        jool_ns instance remove >/dev/null 2>&1
-        clat_instance "$p" || log "Cannot point the CLAT at ${p}/96"
+    local e a r
+    eval "e=\$exit_$1 a=\$addr_$1 r=\$rtt_$1"
+    active=$1 fails=0
+    if [ "$e" != "$running" ]; then
+        log "Switching to exit $e ($a, ${r:-?} ms), restarting Yggdrasil"
+        echo "$e" > "$ACTIVE_FILE"
+        /etc/init.d/yggdrasil restart
+        running=$(running_exit)
+        wait_dev || log "Yggdrasil did not come back"
+    else
+        echo "$e" > "$ACTIVE_FILE"
+        log "Using exit $e ($a, ${r:-?} ms)"
     fi
-    ip -4 route replace default via "$NS_HOST4" dev "$CLAT_DEV" table "$TABLE"
-    write_dns "$p"
-    [ "$e" = "$a" ] || e="$e = $a"
-    log "Using exit $e (NAT64 prefix ${p}/96, ${r:-?} ms)"
+    route_exit || log "No ${YGG_DEV} device, the exit is not routed yet"
 }
 
-# No exit: the client IPv4 goes nowhere. The CLAT stays, without a route
-# nothing reaches it.
+# No exit: the client IPv4 goes nowhere. Yggdrasil keeps its configuration.
 deactivate() {
     route_block
     active=0
 }
 
-# Checks exit prefix $1: a ping answer from 1.1.1.1 or 8.8.8.8 through it.
-# On success prints the round trip time in ms and returns 0.
-check() {
-    local p="$1" t ip
-    [ -n "$p" ] || return 1
-    for ip in 101:101 808:808; do
-        t=$(ping -6 -c 1 -W 5 "${p}${ip}" 2>/dev/null | sed -n 's/.* time=\([0-9.]*\) ms.*/\1/p')
-        if [ -n "$t" ]; then
-            echo "$t" | awk '{ printf "%d\n", $1 + 0.5 }'
-            return 0
-        fi
-    done
-    return 1
+# Pings Yggdrasil address $1 (-6) or IPv4 addresses from the node's address
+# ($1 = -4). On success prints the round trip time in ms and returns 0.
+ping_rtt() {
+    local t ip
+    if [ "$1" = "-4" ]; then
+        for ip in 1.1.1.1 8.8.8.8; do
+            t=$(ping -4 -c 1 -W 5 -I "$my_ip" "$ip" 2>/dev/null | sed -n 's/.* time=\([0-9.]*\) ms.*/\1/p')
+            [ -n "$t" ] && break
+        done
+    else
+        t=$(ping -6 -c 1 -W 5 "$1" 2>/dev/null | sed -n 's/.* time=\([0-9.]*\) ms.*/\1/p')
+    fi
+    [ -n "$t" ] || return 1
+    echo "$t" | awk '{ printf "%d\n", $1 + 0.5 }'
 }
 
 # Checks WAN: a ping answer from 1.1.1.1 or 8.8.8.8 sent by the node itself.
@@ -317,40 +244,8 @@ update_wan() {
     fi
 }
 
-# Resolves the domain names among the exits. $1 = 1: all of them (periodic
-# refresh), otherwise only those without an address yet. Addresses are fixed.
-# A changed address of the active exit takes effect at once.
-resolve_exits() {
-    local i e a old warned
-    i=1
-    while [ "$i" -le "$n" ]; do
-        eval "e=\$exit_$i old=\$addr_$i"
-        if [ -z "$(exit_prefix "$e")" ] && { [ "$1" = 1 ] || [ -z "$old" ]; }; then
-            a=$(resolve_name "$e")
-            if [ -z "$a" ]; then
-                # Logged once until the name resolves; a known address is kept
-                eval "warned=\$warned_$i"
-                if [ -z "$old" ] && [ -z "$warned" ]; then
-                    log "Cannot resolve exit $e to a Yggdrasil address yet"
-                    eval "warned_$i=1"
-                fi
-            elif [ "$a" != "$old" ]; then
-                eval "warned_$i=''"
-                log "Exit $e resolves to $a"
-                eval "addr_$i=\$a prefix_$i=\$(exit_prefix \"\$a\") streak_$i=0 rtt_$i=''"
-                if [ "$i" = "$active" ]; then
-                    fails=0
-                    activate "$i"
-                fi
-            fi
-        fi
-        i=$((i + 1))
-    done
-}
-
 # TERM: a restart or a stop. The client IPv4 goes nowhere until setup() of the
-# next run or cleanup() replaces the routing. The CLAT itself stays, so that a
-# restart keeps it.
+# next run or cleanup() replaces the routing.
 shutdown() {
     route_block
     rm -f "$STATUS_FILE"
@@ -369,26 +264,23 @@ write_status() {
 # was stopped for good (another clearnet mode). In the exit mode client IPv4
 # still has no way out: the firewall has no LAN -> WAN forwarding then.
 cleanup() {
-    rm -f "$STATUS_FILE"
+    rm -f "$STATUS_FILE" "$ACTIVE_FILE"
     ip -4 rule del priority "$RULE_PRIO" 2>/dev/null
+    ip -4 rule del priority "$SELF_PRIO" 2>/dev/null
     ip -4 rule del priority "$WAN_PRIO" 2>/dev/null
     ip -4 route flush table "$TABLE" 2>/dev/null
-    clat_remove
-    if [ -s "$DNS_FILE" ]; then
-        : > "$DNS_FILE"
-        killall -HUP dnsmasq 2>/dev/null
-    fi
+    write_dns ""
     return 0
 }
 
-# Checks every exit once: ok_N (1/0), streak_N (successful checks in a row)
-# and rtt_N (smoothed latency in ms, kept while an exit fails)
+# Pings every exit over Yggdrasil once: ok_N (1/0), streak_N (successful
+# checks in a row) and rtt_N (smoothed latency in ms, kept while it fails)
 check_all() {
-    local i p t r streak
+    local i a t r streak
     i=1
     while [ "$i" -le "$n" ]; do
-        eval "p=\$prefix_$i r=\$rtt_$i streak=\$streak_$i"
-        if t=$(check "$p"); then
+        eval "a=\$addr_$i r=\$rtt_$i streak=\$streak_$i"
+        if t=$(ping_rtt "$a"); then
             [ -n "$r" ] && t=$(((3 * r + t) / 4))
             eval "ok_$i=1 rtt_$i=\$t streak_$i=$((streak + 1))"
         else
@@ -398,14 +290,17 @@ check_all() {
     done
 }
 
-# Prints the number of the fastest healthy exit other than $1 with at least
-# $2 successful checks in a row, or 0. Ties go to the configured order.
+# Prints the number of the fastest reachable exit other than $1 with at least
+# $2 successful checks in a row and out of its COOLDOWN, or 0. Ties go to the
+# configured order.
 fastest() {
-    local i best=0 bestr=0 ok r streak
+    local i best=0 bestr=0 ok r streak bad now
+    now=$(date +%s)
     i=1
     while [ "$i" -le "$n" ]; do
-        eval "ok=\$ok_$i r=\$rtt_$i streak=\$streak_$i"
+        eval "ok=\$ok_$i r=\$rtt_$i streak=\$streak_$i bad=\$bad_$i"
         if [ "$i" != "$1" ] && [ "$ok" = 1 ] && [ "$streak" -ge "$2" ] \
+            && [ $((now - bad)) -ge "$COOLDOWN" ] \
             && { [ "$best" -eq 0 ] || [ "$r" -lt "$bestr" ]; }; then
             best=$i bestr=$r
         fi
@@ -414,13 +309,28 @@ fastest() {
     echo "$best"
 }
 
+# Prints the number of the exit Yggdrasil runs with when it is reachable, or 0
+running_index() {
+    local i e ok
+    i=1
+    while [ "$i" -le "$n" ]; do
+        eval "e=\$exit_$i ok=\$ok_$i"
+        [ "$e" = "$running" ] && [ "$ok" = 1 ] && { echo "$i"; return; }
+        i=$((i + 1))
+    done
+    echo 0
+}
+
 run() {
-    local exits e i p now last_resolve=0 ar br ok mode
+    local exits e i t ar br mode key
     active=0 fails=0 n=0 wan_up=0 wan_fails=0 wan_streak=0
 
     mode=$(uci -q get yggmesh.clearnet.mode)
-    exits=$(uci -q get yggmesh.clearnet.exit)
+    exits=$(uci -q get yggmesh.clearnet.exit | tr 'A-F' 'a-f')
     [ -n "$exits" ] || { log "No exits configured"; exit 0; }
+    key=$(uci -q get yggmesh.yggdrasil.private_key)
+    my_ip=$(key_ipv4 "$(pubkey_of "$key")")
+    running=$(running_exit)
 
     trap shutdown INT TERM
     setup
@@ -433,42 +343,36 @@ run() {
         fi
     fi
 
-    # exit_N is the configured address or name, addr_N/prefix_N are filled
-    # right away for addresses and by resolve_exits for names
+    # exit_N is the public key, addr_N its Yggdrasil address
     for e in $exits; do
+        is_pubkey "$e" || continue
         n=$((n + 1))
-        p=$(exit_prefix "$e")
-        if [ -n "$p" ]; then
-            eval "exit_$n=\$e addr_$n=\$e prefix_$n=\$p"
-        else
-            eval "exit_$n=\$e addr_$n='' prefix_$n=''"
-        fi
-        eval "ok_$n=0 streak_$n=0 rtt_$n=''"
+        eval "exit_$n=\$e addr_$n=\$(key_address \"\$e\") ok_$n=0 streak_$n=0 rtt_$n='' bad_$n=0"
     done
-    log "Clearnet through $n exit(s): $exits"
+    log "Clearnet through $n exit(s) as ${my_ip}: $exits"
+
+    # Yggdrasil started with an exit already: it is the active one until its
+    # checks fail, no restart
+    i=1
+    while [ "$i" -le "$n" ]; do
+        eval "e=\$exit_$i"
+        [ "$e" = "$running" ] && activate "$i"
+        i=$((i + 1))
+    done
 
     while :; do
-        # Names are refreshed every RESOLVE_INTERVAL, and on every check while
-        # no exit works: a moved exit is then found within one check
-        now=$(date +%s)
-        if [ "$active" -eq 0 ] || [ $((now - last_resolve)) -ge "$RESOLVE_INTERVAL" ]; then
-            resolve_exits 1
-            last_resolve=$now
-        else
-            resolve_exits 0
-        fi
-
         check_all
         [ "$mode" = "wan_exit" ] && update_wan
 
         if [ "$active" -gt 0 ]; then
-            eval "ok=\$ok_$active"
-            if [ "$ok" = 1 ] && clat_running; then
+            route_exit
+            if t=$(ping_rtt -4); then
                 fails=0
             else
                 fails=$((fails + 1))
                 if [ "$fails" -ge "$FAIL_LIMIT" ]; then
-                    eval "log \"Exit \$exit_$active is down\""
+                    eval "log \"Exit \$exit_$active does not work\""
+                    eval "bad_$active=\$(date +%s)"
                     deactivate
                 fi
             fi
@@ -476,18 +380,15 @@ run() {
 
         if [ "$active" -eq 0 ]; then
             i=$(fastest 0 1)
-            if [ "$i" -gt 0 ]; then
-                active=$i fails=0
-                activate "$i"
-            fi
+            [ "$i" -gt 0 ] || i=$(running_index)
+            [ "$i" -gt 0 ] && activate "$i"
         else
             i=$(fastest "$active" "$RETURN_LIMIT")
             if [ "$i" -gt 0 ]; then
                 eval "ar=\$rtt_$active br=\$rtt_$i"
                 if [ -n "$ar" ] && [ $((br * 100)) -lt $((ar * SWITCH_PCT)) ] \
                     && [ $((ar - br)) -ge "$SWITCH_MS" ]; then
-                    eval "log \"Exit \$exit_$i is faster (\$br ms vs \$ar ms), switching\""
-                    active=$i fails=0
+                    eval "log \"Exit \$exit_$i is faster (\$br ms vs \$ar ms)\""
                     activate "$i"
                 fi
             fi
@@ -504,6 +405,6 @@ run() {
 case "$1" in
     run) run ;;
     cleanup) cleanup ;;
-    prefix) exit_prefix "$2" ;;
-    *) echo "Usage: $0 run | cleanup | prefix <exit address>" >&2; exit 1 ;;
+    current) current ;;
+    *) echo "Usage: $0 run | cleanup | current" >&2; exit 1 ;;
 esac

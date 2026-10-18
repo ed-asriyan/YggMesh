@@ -23,7 +23,7 @@ on:
         default: "https://yggpeers.fsky.io"
         type: string
       yggpeers_count:
-        description: Target number of global Yggdrasil peers per node with internet on WAN. Peers configured manually count towards this number.
+        description: Target number of global Yggdrasil peers per node with internet on WAN.
         required: false
         default: "3"
         type: string
@@ -43,7 +43,7 @@ on:
         default: "YggMesh"
         type: string
       clearnet_exits:
-        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used.
+        description: Space-separated public keys of clearnet exits (https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used.
         required: false
         default: ""
         type: string
@@ -83,7 +83,7 @@ on:
         default: "https://yggpeers.fsky.io"
         type: string
       yggpeers_count:
-        description: Target number of global Yggdrasil peers per node with internet on WAN. Peers configured manually count towards this number.
+        description: Target number of global Yggdrasil peers per node with internet on WAN.
         required: true
         default: "3"
         type: string
@@ -103,7 +103,7 @@ on:
         default: "YggMesh"
         type: string
       clearnet_exits:
-        description: Space-separated Yggdrasil addresses (200::/8) or domain names (e.g. .ygg) of clearnet exits (https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used.
+        description: Space-separated public keys of clearnet exits (https://github.com/ed-asriyan/YggMesh-exit-node). The fastest working one is used.
         required: false
         default: ""
         type: string

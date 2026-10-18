@@ -1,0 +1,100 @@
+#!/bin/sh /etc/rc.common
+# shellcheck disable=SC3043
+# Yggdrasil-ng, the overlay of the node. Its configuration is generated here
+# from /etc/config/yggmesh on every start and reload:
+#   - the private key (yggdrasil section);
+#   - the public peers picked by yggmesh-fetch-peers (AUTO_PEERS);
+#   - multicast peering on every interface, on the fixed port YGG_PORT;
+#   - in the exit clearnet modes, Crypto-Key Routing: the node's own IPv4
+#     address (derived from its key) on the TUN device, and all IPv4 to the
+#     active exit (yggmesh-clearnet current). The routes are yggmesh-clearnet's.
+# Reloaded by yggmesh-apply and restarted by yggmesh-clearnet when it switches
+# exits. A reload restarts the daemon only when the configuration changed
+# beyond the public peers, which are changed at runtime: a restart drops
+# every mesh link.
+
+START=30
+USE_PROCD=1
+
+. /usr/share/yggmesh/ygg.sh
+
+AUTO_PEERS="/etc/yggmesh/auto_peers"
+# Yggdrasil multicast peering port, the same on every YggMesh node
+YGG_PORT=17000
+
+# Prints the words $@ as a TOML array of strings, without the ones that would
+# break the quoting
+toml_list() {
+	local v out=""
+	for v in "$@"; do
+		case "$v" in
+			*\"*|*\\*) continue ;;
+		esac
+		out="${out:+$out, }\"$v\""
+	done
+	echo "[$out]"
+}
+
+# Prints the configuration without the public peers
+static_config() {
+	local key="$1" active
+	echo "private_key = \"$key\""
+	echo "listen = []"
+	echo "admin_listen = \"$YGG_CTL\""
+	echo "if_name = \"$YGG_DEV\""
+	echo "if_mtu = 65535"
+	echo "node_info_privacy = false"
+	echo
+	echo "[[multicast_interfaces]]"
+	echo "filter = \"*\""
+	echo "beacon = true"
+	echo "listen = true"
+	echo "port = $YGG_PORT"
+
+	case "$(uci -q get yggmesh.clearnet.mode)" in
+		exit|wan_exit) ;;
+		*) return 0 ;;
+	esac
+	echo
+	echo "[tunnel_routing]"
+	echo "enable = true"
+	echo "install_system_routes = false"
+	echo "ip_addresses = [\"$(key_ipv4 "$(pubkey_of "$key")")/32\"]"
+	active=$(/usr/sbin/yggmesh-clearnet current)
+	[ -n "$active" ] || return 0
+	echo
+	echo "[tunnel_routing.remote_subnets]"
+	echo "\"$active\" = [\"~0.0.0.0/0\"]"
+}
+
+start_service() {
+	local key static peers
+	key=$(uci -q get yggmesh.yggdrasil.private_key | tr 'A-F' 'a-f')
+	[ "${#key}" -eq 128 ] || return 1
+
+	# shellcheck disable=SC2046
+	peers=$(toml_list $(cat "$AUTO_PEERS" 2>/dev/null))
+	static=$(static_config "$key")
+	mkdir -p "${YGG_CONF%/*}"
+	umask 077
+	# peers is a top-level key: it goes before the first table
+	printf 'peers = %s\n%s\n' "$peers" "$static" > "$YGG_CONF.new" && mv "$YGG_CONF.new" "$YGG_CONF"
+
+	procd_open_instance
+	# The admin socket binds 127.0.0.1 once and gives up if the address is
+	# not there yet: at boot netifd may not have configured lo so far (slow
+	# devices), and the node would run without its socket (no status, no
+	# public peers). So Yggdrasil starts once lo has the address.
+	# shellcheck disable=SC2016
+	procd_set_param command /bin/sh -c '
+		while ! ip -4 addr show dev lo 2>/dev/null | grep -q "inet 127\.0\.0\.1/"; do
+			sleep 1
+		done
+		exec /usr/bin/yggdrasil -c "$0"' "$YGG_CONF"
+	# A changed configuration restarts the daemon on reload, new public peers do not
+	procd_set_param env YGGMESH_YGGDRASIL="$(echo "$static" | md5sum | cut -d' ' -f1)"
+	procd_set_param respawn 3600 5 0
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}

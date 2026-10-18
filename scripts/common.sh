@@ -35,21 +35,28 @@ download_builder() {
 # Shared Configuration & Packages
 # ============================================================================
 
-YGGMESH_BUILD="26"
+YGGMESH_BUILD="27"
 FIRMWARE_VERSION="${OPENWRT_VERSION}-ym${YGGMESH_BUILD}"
 
 COMMON_PACKAGES=(
-    yggdrasil
     # LuCI without the package manager page (apk still works from the shell)
     luci-light
-    luci-proto-yggdrasil
     iwinfo
-    # The in-kernel CLAT, see yggmesh-clearnet. yggmesh-jool-siit: jool_siit
-    # alone, see make_jool_siit_package. ip-tiny: busybox ip has no netns and
-    # no veth. (uclient-fetch, libustream-mbedtls and ca-bundle are defaults.)
-    yggmesh-jool-siit
-    kmod-veth
-    ip-tiny
+    # The TUN device of Yggdrasil-ng, which is not a package: see
+    # add_yggdrasil. (uclient-fetch, libustream-mbedtls and ca-bundle are
+    # defaults.)
+    kmod-tun
+)
+
+# Yggdrasil-ng (https://github.com/Revertron/Yggdrasil-ng): the static binary
+# of its release, one per OpenWrt package architecture family. To update it,
+# change the version and the checksums of all four binaries.
+YGGDRASIL_NG_VERSION="0.3.1"
+declare -A YGGDRASIL_NG_SHA256=(
+    [amd64]=d44847469b85ad3ede77041b0f73d1be428ba20d88c8b88d4999d594d788316b
+    [arm64]=f62cd8fae45f19c735ce0a50789625239973327250716ee0dbb0f3ed95e25924
+    [mips]=fb8731a1a16b75cc27d0a896d42ccdc55282a79f303fc638f44c830344456194
+    [mipsel]=44fd2ca14d503b2aca5fd06e55da74420a5736ee55ea4a76599be0680f799464
 )
 
 # ============================================================================
@@ -82,64 +89,36 @@ run() {
     [ -z "$out" ] || printf '%s\n' "$out"
 }
 
-# Puts yggmesh-jool-siit into the Image Builder's local packages/ directory:
-# jool_siit and the GRO hotplug script of jool-tools-netfilter, depending on
-# libnl-genl only. jool-tools-netfilter also brings jool and joold and, through
-# the libnl meta package, libnl-route, libnl-nf and libnl-cli: ~700 KiB
-# unpacked that the CLAT does not use, too much for 16 MB NOR devices.
-make_jool_siit_package() {
-    local ib arch work pkg ver lib
+# Installs the Yggdrasil-ng binary for the Image Builder of target $1 as
+# /usr/bin/yggdrasil into the FILES directory $2. The binary is downloaded
+# once into BUILD_ROOT and checked against YGGDRASIL_NG_SHA256. The release
+# binaries are static (musl) and soft-float on MIPS, so one fits every
+# device of a package architecture family.
+add_yggdrasil() {
+    local ib arch bin file url sum
     ib="$(get_builder_dir "$1")"
     arch=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"$/\1/p' "$ib/.config")
-    [ -n "$arch" ] || fail "no CONFIG_TARGET_ARCH_PACKAGES in $ib/.config"
-    work=$(mktemp -d)
-    mkdir -p "$work/root/etc/apk" "$work/cache" "$work/pkg" "$work/x" "$work/files/usr/bin" "$ib/packages"
-
-    ib_apk() {
-        run env STAGING_DIR_HOST="$ib/staging_dir/host" \
-            "$ib/staging_dir/host/bin/fakeroot" "$ib/staging_dir/host/bin/apk" \
-            --root "$work/root" --keys-dir "$ib/keys" --no-logfile \
-            --repositories-file "$ib/repositories" --cache-dir "$work/cache" "$@"
-    }
-    ib_apk add --arch "$arch" --initdb
-    ib_apk fetch --arch "$arch" --output "$work/pkg" jool-tools-netfilter
-    pkg=$(ls "$work"/pkg/jool-tools-netfilter-*.apk 2>/dev/null) \
-        || fail "apk fetch left no jool-tools-netfilter package in $work/pkg"
-    ver=${pkg##*/jool-tools-netfilter-}
-    ver=${ver%.apk}
-    # Packages are not signed one by one, the index is: fetch has checked the
-    # file against the signed index already
-    ib_apk --allow-untrusted extract --no-chown --destination "$work/x" "$pkg"
-    [ -x "$work/x/usr/bin/jool_siit" ] || fail "no usr/bin/jool_siit in $pkg: $(cd "$work/x" && find . | head -20 | tr '\n' ' ')"
-
-    cp -p "$work/x/usr/bin/jool_siit" "$work/files/usr/bin/"
-    if [ -d "$work/x/etc/hotplug.d" ]; then
-        mkdir -p "$work/files/etc"
-        cp -rp "$work/x/etc/hotplug.d" "$work/files/etc/"
+    case "$arch" in
+        x86_64) bin=amd64 ;;
+        aarch64_*) bin=arm64 ;;
+        mips_*) bin=mips ;;
+        mipsel_*) bin=mipsel ;;
+        *) fail "no Yggdrasil-ng binary for the package architecture '$arch' of $1" ;;
+    esac
+    file="${BUILD_ROOT}/yggdrasil-ng-${YGGDRASIL_NG_VERSION}-${bin}"
+    url="https://github.com/Revertron/Yggdrasil-ng/releases/download/v${YGGDRASIL_NG_VERSION}/yggdrasil-${bin}"
+    if [ ! -f "$file" ]; then
+        echo "Downloading Yggdrasil-ng ${YGGDRASIL_NG_VERSION} (${bin})..."
+        run wget -q -O "${file}.part" "$url"
+        mv "${file}.part" "$file"
     fi
-    # jool_siit must need nothing of libnl beyond libnl-genl (and libnl-core)
-    for lib in $(grep -a -o 'libnl-[a-z-]*3\.so' "$work/files/usr/bin/jool_siit" | sort -u); do
-        case "$lib" in
-            libnl-3.so|libnl-genl-3.so) ;;
-            *) fail "jool_siit $ver needs $lib, yggmesh-jool-siit must depend on it" ;;
-        esac
-    done
-
-    rm -f "$ib"/packages/yggmesh-jool-siit-*.apk
-    # OpenWrt's fakeroot finds its library through STAGING_DIR_HOST
-    run env STAGING_DIR_HOST="$ib/staging_dir/host" \
-        "$ib/staging_dir/host/bin/fakeroot" "$ib/staging_dir/host/bin/apk" mkpkg \
-        --info "name:yggmesh-jool-siit" \
-        --info "version:$ver" \
-        --info "arch:$arch" \
-        --info "description:jool_siit of jool-tools-netfilter $ver, without jool, joold and the full libnl" \
-        --info "license:GPL-2.0-only" \
-        --info "url:https://nicmx.github.io/Jool/" \
-        --info "depends:libnl-genl kmod-jool-netfilter ethtool" \
-        --files "$work/files" \
-        --output "$ib/packages/yggmesh-jool-siit-$ver.apk"
-    rm -rf "$work"
-    echo "Repackaged jool_siit $ver as yggmesh-jool-siit"
+    sum=$(sha256sum "$file" | cut -d' ' -f1)
+    if [ "$sum" != "${YGGDRASIL_NG_SHA256[$bin]}" ]; then
+        rm -f "$file"
+        fail "$url has the checksum $sum, expected ${YGGDRASIL_NG_SHA256[$bin]}"
+    fi
+    install -D -m 0755 "$file" "$2/usr/bin/yggdrasil"
+    echo "Yggdrasil-ng ${YGGDRASIL_NG_VERSION} (${bin}) added"
 }
 
 validate_inputs() {
@@ -201,28 +180,16 @@ validate_inputs() {
         YGGPEERS_INSTANCES="$normalized"
     fi
 
-    # Validate CLEARNET_EXITS: Yggdrasil node addresses (200::/8, not subnets
-    # in 300::/8 and not clearnet IPs) or domain names, resolved by the node.
-    # Addresses are normalized to the compressed form, names to lower case.
+    # Validate CLEARNET_EXITS: public keys of the exits (64 hex digits),
+    # normalized to lower case
     if [ -n "$CLEARNET_EXITS" ]; then
-        local exit_addr exit_norm normalized_exits=""
-        for exit_addr in $CLEARNET_EXITS; do
-            if ! exit_norm=$(python3 -c "
-import ipaddress, re, sys
-v = sys.argv[1]
-if ':' in v:
-    a = ipaddress.IPv6Address(v)
-    if a not in ipaddress.IPv6Network('200::/8'):
-        sys.exit(1)
-    print(a.compressed)
-elif re.fullmatch(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}', v.lower()):
-    print(v.lower())
-else:
-    sys.exit(1)" "$exit_addr" 2>/dev/null); then
-                echo "Error: Invalid exit in CLEARNET_EXITS: '$exit_addr'. Expected a Yggdrasil node address in 200::/8 or a domain name." >&2
+        local exit_key normalized_exits=""
+        for exit_key in $CLEARNET_EXITS; do
+            if ! [[ "$exit_key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+                echo "Error: Invalid exit in CLEARNET_EXITS: '$exit_key'. Expected the public key of an exit (64 hex digits)." >&2
                 exit 1
             fi
-            normalized_exits="${normalized_exits:+$normalized_exits }$exit_norm"
+            normalized_exits="${normalized_exits:+$normalized_exits }${exit_key,,}"
         done
         CLEARNET_EXITS="$normalized_exits"
     fi
